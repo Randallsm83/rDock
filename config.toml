@@ -1,0 +1,50 @@
+# rDock Configuration
+
+[dock]
+icon_size = 48
+spacing = 10
+padding = 14
+background_color = "#1e1e2e"
+background_opacity = 0.92
+indicator_color = "#f38ba8"
+corner_radius = 14
+auto_hide = true
+auto_hide_delay_ms = 400
+
+# Dock Items - customize paths and icons to match your setup
+
+[[items]]
+name = "File Explorer"
+path = "C:\\Windows\\explorer.exe"
+icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\folder-blank.ico"
+
+[[items]]
+name = "Brave"
+path = "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
+icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\brave.ico"
+
+[[items]]
+name = "Discord"
+path = "C:\\Users\\Randall\\AppData\\Local\\Discord\\Update.exe"
+args = ["--processStart", "Discord.exe"]
+icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\discord.ico"
+
+[[items]]
+name = "Steam"
+path = "C:\\Program Files (x86)\\Steam\\steam.exe"
+icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\steam.ico"
+
+[[items]]
+name = "Spotify"
+path = "C:\\Users\\Randall\\AppData\\Roaming\\Spotify\\Spotify.exe"
+icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\spotify-client.ico"
+
+[[items]]
+name = "VS Code"
+path = "C:\\Users\\Randall\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
+icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\code.ico"
+
+[[items]]
+name = "WezTerm"
+path = "C:\\Program Files\\WezTerm\\wezterm-gui.exe"
+icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\Alacritty.ico"

@@ -1,0 +1,55 @@
+[package]
+name = "rdock"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight Windows dock with custom icon support"
+
+[dependencies]
+# Window management
+winit = { version = "0.30", features = ["rwh_06"] }
+raw-window-handle = "0.6"
+softbuffer = "0.4"
+
+# Windows API
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_System_LibraryLoader",
+    "Win32_Security",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_System_Com",
+] }
+
+# Image loading
+image = { version = "0.25", default-features = false, features = ["ico", "png"] }
+ico = "0.3"
+
+# Config
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+shell-words = "1.1"
+
+# System tray
+tray-icon = "0.19"
+
+# Error handling
+anyhow = "1.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# File watching for hot reload
+notify = "6.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
