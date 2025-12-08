@@ -8,30 +8,9 @@ A lightweight, customizable Windows dock application written in Rust that brings
 
 ## Screenshots
 
-<table>
-  <tr>
-    <td><img src=".github/images/dock-main.png" alt="Main dock view" width="600"/></td>
-  </tr>
-  <tr>
-    <td align="center"><em>rdock with custom icons and running indicators</em></td>
-  </tr>
-</table>
-
-<details>
-<summary>More Screenshots</summary>
-
-<table>
-  <tr>
-    <td><img src=".github/images/dock-context-menu.png" alt="Context menu" width="400"/></td>
-    <td><img src=".github/images/dock-hover.png" alt="Hover tooltip" width="400"/></td>
-  </tr>
-  <tr>
-    <td align="center"><em>Right-click context menu</em></td>
-    <td align="center"><em>Application tooltips</em></td>
-  </tr>
-</table>
-
-</details>
+<p align="center">
+  <img src=".github/images/dock-main.png" alt="rDock with custom icons and running indicators" width="800"/>
+</p>
 
 ## ✨ Features
 
