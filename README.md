@@ -23,6 +23,13 @@ A lightweight, customizable Windows dock application written in Rust that brings
 
 ## 🚀 Installation
 
+### Pre-built Binary (Recommended)
+
+1. Download the latest release from [Releases](https://github.com/Randallsm83/rdock/releases)
+2. Extract the ZIP file to your preferred location
+3. Edit `config.toml` to customize your dock
+4. Run `rdock.exe`
+
 ### From Source
 
 ```bash
@@ -128,6 +135,13 @@ cargo clippy
 - Adjust `auto_hide_delay_ms` to your preference (lower = more responsive)
 - Experiment with `background_opacity` for different visual styles
 - Color values support hex format (`#RRGGBB`)
+
+## 📦 Future Distribution
+
+Planned package manager support:
+- **winget**: `winget install rdock` (pending)
+- **scoop**: `scoop install rdock` (pending)
+- **Chocolatey**: `choco install rdock` (pending)
 
 ## 📝 License
 

@@ -51,9 +51,9 @@ impl Renderer {
             icons_large: HashMap::new(),
         };
 
-        // Pre-load icons at high resolution for quality scaling
-        // Load at 3x the display size for sharp rendering at all scales
-        let base_load_size = (icon_size * 3).max(192);
+        // Pre-load icons at very high resolution for quality scaling
+        // Use 6x size to ensure we have enough data for sharp rendering
+        let base_load_size = (icon_size * 6).max(384);
         for item in items {
             if let Some(icon_path) = &item.icon {
                 if let Ok(pixels) = renderer.load_icon(icon_path, base_load_size) {
@@ -74,10 +74,10 @@ impl Renderer {
         
         // Try to load as ICO first to get best resolution
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-        let img: DynamicImage = if ext == "ico" {
+        let mut img: DynamicImage = if ext == "ico" {
             let mut reader = BufReader::new(file);
             if let Ok(ico) = ico::IconDir::read(&mut reader) {
-                // Find the largest icon entry
+                // Find the largest icon entry (prefer 256x256 or larger)
                 let best = ico.entries().iter()
                     .max_by_key(|e| e.width() as u32 * e.height() as u32);
                 
@@ -110,14 +110,24 @@ impl Renderer {
                 .with_context(|| format!("Failed to load icon: {}", path.display()))?
         };
         
-        // Use Lanczos3 for highest quality downscaling
-        let img = img.resize_exact(
-            size,
-            size,
-            image::imageops::FilterType::Lanczos3,
-        );
+        // If source is smaller than target, use Mitchell for upscaling (sharper than Lanczos)
+        // If downscaling, use Lanczos3 for best quality
+        let current_size = img.width().min(img.height());
+        let filter = if current_size < size {
+            // Upscaling - use Mitchell (CatmullRom) for sharper results
+            image::imageops::FilterType::CatmullRom
+        } else {
+            // Downscaling - use Lanczos3
+            image::imageops::FilterType::Lanczos3
+        };
+        
+        img = img.resize_exact(size, size, filter);
 
-        let rgba = img.to_rgba8();
+        let mut rgba = img.to_rgba8();
+        
+        // Apply subtle sharpening to improve edge clarity
+        rgba = sharpen_image(rgba, 0.3);
+        
         let pixels: Vec<u32> = rgba
             .chunks_exact(4)
             .map(|c| {
@@ -128,7 +138,7 @@ impl Renderer {
                 (a << 24) | (r << 16) | (g << 8) | b
             })
             .collect();
-
+        
         Ok(pixels)
     }
 
@@ -217,7 +227,7 @@ impl Renderer {
             
             // Draw icon
             if let Some(icon_path) = &item.icon {
-                let src_size = (self.icon_size * 3).max(192);
+                let src_size = (self.icon_size * 6).max(384);
                 let pixels = if let Some(p) = self.icons.get(icon_path) {
                     p
                 } else {
@@ -227,7 +237,7 @@ impl Renderer {
                     continue;
                 };
                 
-                self.draw_icon_bilinear(buffer, width, pixels, src_size, x, y, scaled_size);
+                self.draw_icon_bicubic(buffer, width, pixels, src_size, x, y, scaled_size);
                 icon_draws.push((x, y, scaled_size, pixels, src_size));
             } else {
                 self.draw_placeholder(buffer, width, x, y, scaled_size);
@@ -253,10 +263,10 @@ impl Renderer {
             self.draw_drop_indicator(buffer, width, x_pos as u32, self.padding.top, self.icon_size);
         }
         
-        // Draw reflections
+        // Draw reflections (using bicubic for quality)
         for (x, y, scaled_size, pixels, src_size) in icon_draws {
             let reflection_y = y + scaled_size + 2;
-            self.draw_reflection(buffer, width, pixels, src_size, x, reflection_y, scaled_size);
+            self.draw_reflection_bicubic(buffer, width, pixels, src_size, x, reflection_y, scaled_size);
         }
         
         // Draw dragged icon following cursor
@@ -265,13 +275,13 @@ impl Renderer {
             if !item.is_separator() {
                 if let Some(icon_path) = &item.icon {
                     if let Some(pixels) = self.icons.get(icon_path) {
-                        let src_size = (self.icon_size * 3).max(192);
+                        let src_size = (self.icon_size * 6).max(384);
                         let drag_size = self.icon_size;
                         let drag_x = (drag_cursor_x - drag_size as f32 / 2.0).max(0.0) as u32;
                         let drag_y = self.padding.top;
                         
                         // Draw with slight transparency effect (draw darker/lighter)
-                        self.draw_icon_bilinear(buffer, width, pixels, src_size, drag_x, drag_y, drag_size);
+                        self.draw_icon_bicubic(buffer, width, pixels, src_size, drag_x, drag_y, drag_size);
                     }
                 }
             }
@@ -369,6 +379,40 @@ impl Renderer {
         }
     }
 
+    fn draw_reflection_bicubic(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
+        let scale = src_size as f32 / dst_size as f32;
+        let src_w = src_size as usize;
+        let reflection_height = (dst_size as f32 * 0.35) as u32;
+        
+        for iy in 0..reflection_height.min(dst_size) {
+            let fade = 1.0 - (iy as f32 / reflection_height as f32);
+            let row_alpha = (fade * fade * 60.0) as u32;
+            
+            for ix in 0..dst_size {
+                let src_x = ix as f32 * scale;
+                let src_y = (dst_size - 1 - iy) as f32 * scale; // Flip Y
+                
+                let pixel = bicubic_sample(pixels, src_w, src_x, src_y);
+                
+                let dst_x = x as usize + ix as usize;
+                let dst_y = y as usize + iy as usize;
+                let dst_idx = dst_y * buf_width + dst_x;
+
+                if dst_idx < buffer.len() {
+                    let src_alpha = (pixel >> 24) & 0xFF;
+                    if src_alpha > 0 {
+                        let final_alpha = (src_alpha * row_alpha / 255).min(row_alpha);
+                        let r = (pixel >> 16) & 0xFF;
+                        let g = (pixel >> 8) & 0xFF;
+                        let b = pixel & 0xFF;
+                        let reflected = (final_alpha << 24) | (r << 16) | (g << 8) | b;
+                        buffer[dst_idx] = alpha_blend(buffer[dst_idx], reflected);
+                    }
+                }
+            }
+        }
+    }
+    
     fn draw_reflection(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
         let scale = src_size as f32 / dst_size as f32;
         let src_w = src_size as usize;
@@ -416,6 +460,31 @@ impl Renderer {
         }
     }
 
+    fn draw_icon_bicubic(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
+        let scale = src_size as f32 / dst_size as f32;
+        let src_w = src_size as usize;
+        
+        for iy in 0..dst_size {
+            for ix in 0..dst_size {
+                let src_x = ix as f32 * scale;
+                let src_y = iy as f32 * scale;
+                
+                let pixel = bicubic_sample(pixels, src_w, src_x, src_y);
+                
+                let dst_x = x as usize + ix as usize;
+                let dst_y = y as usize + iy as usize;
+                let dst_idx = dst_y * buf_width + dst_x;
+
+                if dst_idx < buffer.len() {
+                    let alpha = (pixel >> 24) & 0xFF;
+                    if alpha > 0 {
+                        buffer[dst_idx] = alpha_blend(buffer[dst_idx], pixel);
+                    }
+                }
+            }
+        }
+    }
+    
     fn draw_icon_bilinear(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
         let scale = src_size as f32 / dst_size as f32;
         let src_w = src_size as usize;
@@ -726,4 +795,95 @@ fn brighten_pixel(pixel: u32) -> u32 {
     let g = (((pixel >> 8) & 0xFF) as u32 * 120 / 100).min(255);
     let b = ((pixel & 0xFF) as u32 * 120 / 100).min(255);
     (a << 24) | (r << 16) | (g << 8) | b
+}
+
+// Cubic hermite spline interpolation for smooth scaling
+fn cubic_hermite(a: f32, b: f32, c: f32, d: f32, t: f32) -> f32 {
+    let a0 = -a / 2.0 + (3.0 * b) / 2.0 - (3.0 * c) / 2.0 + d / 2.0;
+    let a1 = a - (5.0 * b) / 2.0 + 2.0 * c - d / 2.0;
+    let a2 = -a / 2.0 + c / 2.0;
+    let a3 = b;
+    a0 * t * t * t + a1 * t * t + a2 * t + a3
+}
+
+// Apply unsharp mask sharpening to improve edge clarity
+fn sharpen_image(img: image::RgbaImage, strength: f32) -> image::RgbaImage {
+    use image::GenericImageView;
+    let (width, height) = img.dimensions();
+    let mut sharpened = img.clone();
+    
+    // Simple 3x3 unsharp mask kernel
+    let kernel = [
+        [0.0, -strength, 0.0],
+        [-strength, 1.0 + 4.0 * strength, -strength],
+        [0.0, -strength, 0.0],
+    ];
+    
+    for y in 1..(height - 1) {
+        for x in 1..(width - 1) {
+            let mut sum_r = 0.0;
+            let mut sum_g = 0.0;
+            let mut sum_b = 0.0;
+            let center_a = img.get_pixel(x, y)[3];
+            
+            // Skip fully transparent pixels
+            if center_a == 0 {
+                continue;
+            }
+            
+            for ky in 0..3 {
+                for kx in 0..3 {
+                    let px = (x as i32 + kx - 1) as u32;
+                    let py = (y as i32 + ky - 1) as u32;
+                    let pixel = img.get_pixel(px, py);
+                    let k = kernel[ky as usize][kx as usize];
+                    sum_r += pixel[0] as f32 * k;
+                    sum_g += pixel[1] as f32 * k;
+                    sum_b += pixel[2] as f32 * k;
+                }
+            }
+            
+            let new_pixel = image::Rgba([
+                sum_r.max(0.0).min(255.0) as u8,
+                sum_g.max(0.0).min(255.0) as u8,
+                sum_b.max(0.0).min(255.0) as u8,
+                center_a,
+            ]);
+            sharpened.put_pixel(x, y, new_pixel);
+        }
+    }
+    
+    sharpened
+}
+
+fn bicubic_sample(pixels: &[u32], src_w: usize, x: f32, y: f32) -> u32 {
+    let x0 = x.floor() as isize;
+    let y0 = y.floor() as isize;
+    let fx = x - x0 as f32;
+    let fy = y - y0 as f32;
+    
+    let mut channels = [0f32; 4]; // ARGB
+    
+    for ch in 0..4 {
+        let shift = (3 - ch) * 8;
+        let mut cols = [0f32; 4];
+        
+        for j in 0..4 {
+            let py = (y0 - 1 + j as isize).max(0).min(src_w as isize - 1) as usize;
+            let mut row = [0f32; 4];
+            
+            for i in 0..4 {
+                let px = (x0 - 1 + i as isize).max(0).min(src_w as isize - 1) as usize;
+                let idx = py * src_w + px;
+                let pixel = pixels.get(idx).copied().unwrap_or(0);
+                row[i] = ((pixel >> shift) & 0xFF) as f32;
+            }
+            
+            cols[j] = cubic_hermite(row[0], row[1], row[2], row[3], fx);
+        }
+        
+        channels[ch] = cubic_hermite(cols[0], cols[1], cols[2], cols[3], fy).max(0.0).min(255.0);
+    }
+    
+    ((channels[0] as u32) << 24) | ((channels[1] as u32) << 16) | ((channels[2] as u32) << 8) | (channels[3] as u32)
 }

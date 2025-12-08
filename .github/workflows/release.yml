@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Build release
+      run: cargo build --release --verbose
+    
+    - name: Create release archive
+      run: |
+        $version = if ($env:GITHUB_REF -match 'refs/tags/(.*)') { $matches[1] } else { "dev" }
+        mkdir release
+        Copy-Item target/release/rdock.exe release/
+        Copy-Item config.toml release/
+        Copy-Item README.md release/
+        Compress-Archive -Path release/* -DestinationPath rdock-$version-windows-x64.zip
+      shell: pwsh
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: rdock-windows-x64
+        path: rdock-*.zip
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: rdock-*.zip
+        body: |
+          ## Installation
+          
+          1. Download `rdock-*-windows-x64.zip`
+          2. Extract to a folder of your choice
+          3. Edit `config.toml` to customize your dock
+          4. Run `rdock.exe`
+          
+          ## What's Changed
+          
+          See the commit history for details.
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
