@@ -9,7 +9,7 @@ pub struct Renderer {
     pub icon_size: u32,
     pub spacing: ItemSpacing,
     pub padding: Spacing,
-    pub vertical_offset: i32,
+    pub negative_vertical_offset: i32,
     pub corner_radius: u32,
     pub bg_color: u32,
     pub indicator_color: (u8, u8, u8),
@@ -43,7 +43,7 @@ impl Renderer {
             icon_size,
             spacing,
             padding,
-            vertical_offset: config.dock.vertical_offset,
+            negative_vertical_offset: config.dock.negative_vertical_offset,
             corner_radius: config.dock.corner_radius,
             bg_color,
             indicator_color,
@@ -246,8 +246,8 @@ impl Renderer {
             // Running indicator
             if running.get(i).copied().unwrap_or(false) {
                 let ind_x = x + scaled_size / 2;
-                let ind_y = if self.vertical_offset > 0 {
-                    (self.height as i32 - 5 - self.vertical_offset).max(self.padding.top as i32 + self.icon_size as i32) as u32
+                let ind_y = if self.negative_vertical_offset > 0 {
+                    (self.height as i32 - 5 - self.negative_vertical_offset).max(self.padding.top as i32 + self.icon_size as i32) as u32
                 } else {
                     self.height - 5
                 };

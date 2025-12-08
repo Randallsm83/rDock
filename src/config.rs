@@ -132,8 +132,8 @@ pub struct DockSettings {
     pub spacing: ItemSpacing,
     #[serde(default)]
     pub padding: Spacing,
-    #[serde(default)]
-    pub vertical_offset: i32,
+    #[serde(default, alias = "vertical_offset")]
+    pub negative_vertical_offset: i32,
     #[serde(default = "default_background_color")]
     pub background_color: String,
     #[serde(default = "default_background_opacity")]
@@ -150,8 +150,8 @@ pub struct DockSettings {
     pub magnification: f32,
     #[serde(default)]
     pub locked: bool,
-    #[serde(default)]
-    pub hide_taskbar: bool,
+    #[serde(default, alias = "hide_taskbar")]
+    pub hide_windows_taskbar: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

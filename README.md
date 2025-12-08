@@ -6,6 +6,33 @@ A lightweight, customizable Windows dock application written in Rust that brings
 ![Rust](https://img.shields.io/badge/Rust-000000?style=flat&logo=rust&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src=".github/images/dock-main.png" alt="Main dock view" width="600"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>rdock with custom icons and running indicators</em></td>
+  </tr>
+</table>
+
+<details>
+<summary>More Screenshots</summary>
+
+<table>
+  <tr>
+    <td><img src=".github/images/dock-context-menu.png" alt="Context menu" width="400"/></td>
+    <td><img src=".github/images/dock-hover.png" alt="Hover tooltip" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Right-click context menu</em></td>
+    <td align="center"><em>Application tooltips</em></td>
+  </tr>
+</table>
+
+</details>
+
 ## ✨ Features
 
 - **Auto-hide Dock** - Slides in/out smoothly with configurable delays
@@ -26,7 +53,7 @@ A lightweight, customizable Windows dock application written in Rust that brings
 
 ### Pre-built Binary (Recommended)
 
-1. Download the latest release from [Releases](https://github.com/Randallsm83/rdock/releases)
+1. Download the latest release from [Releases](https://github.com/Randallsm83/rDock/releases)
 2. Extract the ZIP file to your preferred location
 3. Edit `config.toml` to customize your dock
 4. Run `rdock.exe`
@@ -35,8 +62,8 @@ A lightweight, customizable Windows dock application written in Rust that brings
 
 ```bash
 # Clone the repository
-git clone https://github.com/Randallsm83/rdock.git
-cd rdock
+git clone https://github.com/Randallsm83/rDock.git
+cd rDock
 
 # Build release version
 cargo build --release

@@ -260,7 +260,7 @@ impl DockApp {
                     
                     // Reposition with vertical offset
                     let x = (self.screen_width - renderer.width) / 2;
-                    let offset = self.config.dock.vertical_offset;
+                    let offset = self.config.dock.negative_vertical_offset;
                     let y_vis = (self.screen_height as i32 - renderer.height as i32 + offset) as u32;
                     self.dock_y_visible = y_vis as f32;
                     self.dock_y_hidden = (self.screen_height + 20) as f32;
@@ -815,7 +815,7 @@ impl ApplicationHandler for DockApp {
         let dock_h = renderer.height;
 
         let x = (screen.width - dock_w) / 2;
-        let offset = self.config.dock.vertical_offset;
+        let offset = self.config.dock.negative_vertical_offset;
         // Positive offset = move down (bury into edge)
         let y_vis = (screen.height as i32 - dock_h as i32 + offset) as u32;
         // When hidden, keep 2 pixels visible at bottom edge so we can detect cursor
@@ -861,7 +861,7 @@ impl ApplicationHandler for DockApp {
         }
         
         // Hide Windows taskbar if configured
-        if self.config.dock.hide_taskbar && !self.taskbar_hidden {
+        if self.config.dock.hide_windows_taskbar && !self.taskbar_hidden {
             set_taskbar_visibility(false);
             self.taskbar_hidden = true;
         }

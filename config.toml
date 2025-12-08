@@ -1,50 +1,59 @@
-# rDock Configuration
+# ╔═══════════════════════════════════════════════════════════╗
+# ║                  rDock Configuration                      ║
+# ║       Lightweight Windows Dock with Custom Icons         ║
+# ╚═══════════════════════════════════════════════════════════╝
 
 [dock]
-icon_size = 48
-spacing = 10
-padding = 14
-background_color = "#1e1e2e"
-background_opacity = 0.92
-indicator_color = "#f38ba8"
-corner_radius = 14
-auto_hide = true
-auto_hide_delay_ms = 400
+# ─── Size & Layout ───────────────────────────────────────────
+icon_size = 48                     # Icon size in pixels (default: 48)
+spacing = 10                       # Space between icons in pixels (default: 10)
+padding = 14                       # Dock internal padding in pixels (default: 14)
 
-# Dock Items - customize paths and icons to match your setup
+# ─── Appearance ──────────────────────────────────────────────
+background_color = "#1e1e2e"       # Dock background color (hex)
+background_opacity = 0.92          # Background transparency (0.0-1.0)
+corner_radius = 14                 # Corner roundness in pixels (default: 14)
+indicator_color = "#f38ba8"        # Color for running app indicators (hex)
+
+# ─── Behavior ────────────────────────────────────────────────
+auto_hide = true                   # Hide dock when not in use (true/false)
+auto_hide_delay_ms = 400           # Delay before hiding in milliseconds (default: 400)
+magnification = 1.6                # Icon magnification on hover (1.0 = no zoom, default: 1.6)
+locked = false                     # Prevent drag reordering of icons (default: false)
+
+# ─── Windows Integration ─────────────────────────────────────
+hide_windows_taskbar = false       # Hide Windows taskbar when dock is active (default: false)
+negative_vertical_offset = 0       # Lift dock up from bottom edge (default: 0)
+
+# ═══════════════════════════════════════════════════════════
+# Dock Items
+# ═══════════════════════════════════════════════════════════
+# Each [[items]] section defines an application in the dock.
+# Required: name, path (for apps) OR special (for system items)
+# Optional: icon, args (command line arguments)
+#
+# To add a visual separator between icons:
+# [[items]]
+# separator = true
+#
+# Drag items to reorder them (unless locked = true above)
+# ═══════════════════════════════════════════════════════════
 
 [[items]]
 name = "File Explorer"
 path = "C:\\Windows\\explorer.exe"
-icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\folder-blank.ico"
+icon = "C:\\path\\to\\your\\icons\\folder.ico"
 
 [[items]]
-name = "Brave"
-path = "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
-icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\brave.ico"
+name = "Browser"
+path = "C:\\Program Files\\YourBrowser\\browser.exe"
+icon = "C:\\path\\to\\your\\icons\\browser.ico"
 
 [[items]]
-name = "Discord"
-path = "C:\\Users\\Randall\\AppData\\Local\\Discord\\Update.exe"
-args = ["--processStart", "Discord.exe"]
-icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\discord.ico"
-
-[[items]]
-name = "Steam"
-path = "C:\\Program Files (x86)\\Steam\\steam.exe"
-icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\steam.ico"
-
-[[items]]
-name = "Spotify"
-path = "C:\\Users\\Randall\\AppData\\Roaming\\Spotify\\Spotify.exe"
-icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\spotify-client.ico"
+name = "---"
+separator = true
 
 [[items]]
 name = "VS Code"
-path = "C:\\Users\\Randall\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
-icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\code.ico"
-
-[[items]]
-name = "WezTerm"
-path = "C:\\Program Files\\WezTerm\\wezterm-gui.exe"
-icon = "E:\\Themes\\Sweet Paranoia Icon Theme by niivu MARCH 29 2022\\candy-icons\\Alacritty.ico"
+path = "C:\\Users\\YourUser\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
+icon = "C:\\path\\to\\your\\icons\\code.ico"

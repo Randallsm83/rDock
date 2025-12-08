@@ -34,7 +34,7 @@ The project uses GitHub Actions to automatically build and publish releases when
    - Name it `rdock-v0.2.0-windows-x64.zip`
 
 5. **Verify the release:**
-   - Go to https://github.com/Randallsm83/rdock/releases
+   - Go to https://github.com/Randallsm83/rDock/releases
    - Check that the new release appears with the ZIP file
    - Download and test the binary
 
@@ -84,11 +84,11 @@ Create a manifest in a scoop bucket:
 ```json
 {
     "version": "0.2.0",
-    "url": "https://github.com/Randallsm83/rdock/releases/download/v0.2.0/rdock-v0.2.0-windows-x64.zip",
+    "url": "https://github.com/Randallsm83/rDock/releases/download/v0.2.0/rdock-v0.2.0-windows-x64.zip",
     "bin": "rdock.exe",
     "checkver": "github",
     "autoupdate": {
-        "url": "https://github.com/Randallsm83/rdock/releases/download/v$version/rdock-v$version-windows-x64.zip"
+        "url": "https://github.com/Randallsm83/rDock/releases/download/v$version/rdock-v$version-windows-x64.zip"
     }
 }
 ```
