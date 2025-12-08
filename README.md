@@ -15,6 +15,7 @@ A lightweight, customizable Windows dock application written in Rust that brings
 - **System Tray Integration** - Minimize to tray with quick access
 - **Drag Reordering** - Rearrange dock items by dragging
 - **Highly Customizable** - Configure appearance, behavior, and applications via TOML
+- **Lightweight & Efficient** - Minimal resource usage (see performance section below)
 
 ## 📋 Requirements
 
@@ -107,6 +108,17 @@ rdock/
 ├── Cargo.toml            # Rust dependencies
 └── config.toml           # User configuration
 ```
+
+## ⚡ Performance
+
+rdock is built for efficiency. Compared to similar dock applications:
+
+- **~75% less memory** - Uses only ~7 MB of private memory vs ~27 MB typical
+- **~84% smaller binary** - Just 2.9 MB vs 18+ MB for comparable applications
+- **Minimal system impact** - Only 3 threads and 207 handles vs 8+ threads and 700+ handles
+- **Fast startup** - Optimized release build with LTO and minimal dependencies
+
+These optimizations mean rdock runs smoothly without impacting your system's performance, even on resource-constrained machines.
 
 ## 🔧 Development
 

@@ -1,0 +1,28 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Performance profiling (internal only)
+PERFORMANCE.md
+profile_docks.ps1
+
+# Build artifacts
+*.exe
+*.pdb
+*.dll
+!target/release/*.exe
+
+# Config backups
+config.toml.bak
+*.toml.bak

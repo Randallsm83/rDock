@@ -517,13 +517,15 @@ impl DockApp {
             animating = true;
         }
 
-        // Smooth wave magnification based on cursor distance (like Nexus/macOS)
+        // Smooth wave magnification based on cursor distance (like macOS Dock)
         if let Some(renderer) = &self.renderer {
             let icon_size = renderer.icon_size as f32;
             let spacing_x = renderer.spacing.x as f32;
             let padding_left = renderer.padding.left as f32;
-            let mag_range = icon_size * 2.5; // How far the magnification effect reaches
-            let max_scale = self.config.dock.magnification; // Configurable max scale
+            
+            // Wider range for wave effect - affects more neighbors
+            let mag_range = icon_size * 3.5; 
+            let max_scale = self.config.dock.magnification;
             
             for i in 0..self.icon_scales.len() {
                 // Calculate icon center X position
@@ -534,9 +536,10 @@ impl DockApp {
                     let dist = (self.cursor_x - icon_center_x).abs();
                     
                     if dist < mag_range {
-                        // Smooth falloff using cosine curve
+                        // Smoother wave using cosine function for natural falloff
                         let t = dist / mag_range;
-                        let falloff = (1.0 - t).powi(2); // Quadratic falloff
+                        // Cosine curve gives a nice smooth wave effect
+                        let falloff = (1.0 + (t * std::f32::consts::PI).cos()) / 2.0;
                         1.0 + (max_scale - 1.0) * falloff
                     } else {
                         1.0
@@ -547,8 +550,8 @@ impl DockApp {
                 
                 let d = target - self.icon_scales[i];
                 if d.abs() > 0.001 {
-                    // Smooth interpolation
-                    self.icon_scales[i] += d * 0.25;
+                    // Slightly faster interpolation for more responsive feel
+                    self.icon_scales[i] += d * 0.3;
                     animating = true;
                 } else {
                     self.icon_scales[i] = target;
