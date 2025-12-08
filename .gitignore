@@ -12,7 +12,8 @@
 .DS_Store
 Thumbs.db
 
-# Performance profiling (internal only)
+# Internal documentation
+WARP.md
 PERFORMANCE.md
 profile_docks.ps1
 
