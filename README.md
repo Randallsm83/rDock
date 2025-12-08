@@ -39,7 +39,11 @@ target/release/rdock.exe
 
 ## ⚙️ Configuration
 
-Configuration is managed through `config.toml`. Place this file in the same directory as the executable.
+Configuration can be managed in two ways:
+1. **GUI**: Right-click on the dock or icons to access configuration options
+2. **Manual**: Edit `config.toml` directly (changes reload automatically)
+
+Place `config.toml` in the same directory as the executable.
 
 ### Dock Appearance
 
@@ -77,7 +81,8 @@ icon = "path\\to\\icon.ico"
 2. **Show/Hide**: Move your mouse to the bottom of the screen to reveal the dock
 3. **Launch Apps**: Click on any icon to launch the application
 4. **Reorder**: Drag icons to rearrange them (config auto-updates)
-5. **System Tray**: Right-click the tray icon to quit
+5. **Context Menu**: Right-click on icons or the dock background for configuration options
+6. **System Tray**: Right-click the tray icon to quit
 
 ## 🏗️ Project Structure
 
