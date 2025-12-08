@@ -154,6 +154,16 @@ cargo clippy
 - Experiment with `background_opacity` for different visual styles
 - Color values support hex format (`#RRGGBB`)
 
+### Where to Get Icons
+
+rDock looks great with custom icon themes! Here are some recommended sources:
+
+- **[Candy Icons](https://github.com/EliverLara/candy-icons)** - Vibrant gradient icons (shown in screenshot, GPL v3)
+- **[Papirus](https://github.com/PapirusDevelopmentTeam/papirus-icon-theme)** - Popular flat icon theme (GPL v3)
+- **[Icons8](https://icons8.com/)** - Large collection of free icons
+- **[Flaticon](https://www.flaticon.com/)** - Extensive icon library
+- **Custom**: Convert existing `.png` files to `.ico` using online tools
+
 ## 📦 Future Distribution
 
 Planned package manager support:
