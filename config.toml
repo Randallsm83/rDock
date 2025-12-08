@@ -22,8 +22,8 @@ magnification = 1.6                # Icon magnification on hover (1.0 = no zoom,
 locked = false                     # Prevent drag reordering of icons (default: false)
 
 # ─── Windows Integration ─────────────────────────────────────
-hide_windows_taskbar = false       # Hide Windows taskbar when dock is active (default: false)
-negative_vertical_offset = 0       # Lift dock up from bottom edge (default: 0)
+hide_windows_taskbar = true        # Hide Windows taskbar when dock is active (default: true)
+negative_vertical_offset = 0       # Push dock DOWN from bottom edge in pixels (default: 0)
 
 # ═══════════════════════════════════════════════════════════
 # Dock Items
