@@ -689,7 +689,7 @@ impl Renderer {
         }
     }
 
-    pub fn hit_test(&self, x: i32, y: i32, items: &[DockItem]) -> Option<usize> {
+    pub fn hit_test(&self, x: i32, y: i32, items: &[DockItem], scales: &[f32]) -> Option<usize> {
         // Generous vertical hit area
         let extra = (self.icon_size as f32 * 0.3) as i32;
         let top = self.padding.top as i32 - extra;
@@ -699,13 +699,14 @@ impl Renderer {
             return None;
         }
 
-        // Calculate total width the same way render does (at scale 1.0)
+        // Calculate total width the same way render does, using current scales
         let mut total_width: f32 = 0.0;
         for (i, item) in items.iter().enumerate() {
             if item.is_separator() {
                 total_width += (self.icon_size / 3) as f32;
             } else {
-                total_width += self.icon_size as f32;
+                let scale = scales.get(i).copied().unwrap_or(1.0);
+                total_width += self.icon_size as f32 * scale;
             }
             if i < items.len() - 1 {
                 total_width += self.spacing.x as f32;
@@ -721,13 +722,26 @@ impl Renderer {
             let item_width = if item.is_separator() {
                 (self.icon_size / 3) as f32
             } else {
-                self.icon_size as f32
+                let scale = scales.get(i).copied().unwrap_or(1.0);
+                self.icon_size as f32 * scale
             };
             
-            // Hit area extends from half the spacing before to half the spacing after
+            // Hit area is the icon itself plus half the spacing on each side (if not first/last)
             let half_spacing = self.spacing.x as f32 / 2.0;
-            let hit_left = x_pos - half_spacing;
-            let hit_right = x_pos + item_width + half_spacing;
+            let is_first = i == 0;
+            let is_last = i == items.len() - 1;
+            
+            let hit_left = if is_first {
+                x_pos  // First icon: no extra space on left
+            } else {
+                x_pos - half_spacing  // Other icons: include half the gap before
+            };
+            
+            let hit_right = if is_last {
+                x_pos + item_width  // Last icon: no extra space on right
+            } else {
+                x_pos + item_width + half_spacing  // Other icons: include half the gap after
+            };
             
             if (x as f32) >= hit_left && (x as f32) < hit_right {
                 return Some(i);
