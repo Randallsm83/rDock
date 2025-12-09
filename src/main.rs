@@ -6,6 +6,7 @@ mod context_menu;
 mod item_editor;
 mod renderer;
 mod tooltip;
+mod tray_popup;
 mod window_focus;
 
 use anyhow::Result;
@@ -22,7 +23,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime};
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
-    TrayIconBuilder,
+    TrayIconBuilder, TrayIconEvent,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -34,6 +35,8 @@ use winit::window::{Window, WindowId, WindowLevel};
 const PROCESS_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 const ANIMATION_FRAME_TIME: Duration = Duration::from_millis(16);
 const HIDE_DELAY: Duration = Duration::from_millis(500);
+const TASKBAR_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+const MOUSE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 
 /// Hide or show the Windows taskbar
@@ -41,23 +44,48 @@ const HIDE_DELAY: Duration = Duration::from_millis(500);
 fn set_taskbar_visibility(visible: bool) {
     use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::core::PCWSTR;
+    use windows::Win32::Foundation::HWND;
     
     unsafe {
+        let cmd = if visible { SW_SHOW } else { SW_HIDE };
+        
+        // Primary taskbar
         let class_name: Vec<u16> = "Shell_TrayWnd".encode_utf16().chain(std::iter::once(0)).collect();
         if let Ok(taskbar) = FindWindowW(PCWSTR(class_name.as_ptr()), PCWSTR::null()) {
             if !taskbar.0.is_null() {
-                let cmd = if visible { SW_SHOW } else { SW_HIDE };
                 let _ = ShowWindow(taskbar, cmd);
+                if !visible {
+                    // More aggressive hiding - move it off screen
+                    let _ = SetWindowPos(
+                        taskbar,
+                        HWND::default(),
+                        -10000, -10000, 0, 0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+                    );
+                }
             }
         }
         
-        // Also handle the secondary taskbar on multi-monitor setups
+        // Secondary taskbars (multi-monitor)
+        // Use EnumWindows to find all secondary taskbars
         let class_name2: Vec<u16> = "Shell_SecondaryTrayWnd".encode_utf16().chain(std::iter::once(0)).collect();
-        if let Ok(taskbar2) = FindWindowW(PCWSTR(class_name2.as_ptr()), PCWSTR::null()) {
-            if !taskbar2.0.is_null() {
-                let cmd = if visible { SW_SHOW } else { SW_HIDE };
-                let _ = ShowWindow(taskbar2, cmd);
+        let mut hwnd = FindWindowExW(HWND::default(), HWND::default(), PCWSTR(class_name2.as_ptr()), PCWSTR::null());
+        while let Ok(taskbar2) = hwnd {
+            if taskbar2.0.is_null() {
+                break;
             }
+            let _ = ShowWindow(taskbar2, cmd);
+            if !visible {
+                // More aggressive hiding
+                let _ = SetWindowPos(
+                    taskbar2,
+                    HWND::default(),
+                    -10000, -10000, 0, 0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+                );
+            }
+            // Find next secondary taskbar
+            hwnd = FindWindowExW(HWND::default(), taskbar2, PCWSTR(class_name2.as_ptr()), PCWSTR::null());
         }
     }
 }
@@ -155,6 +183,10 @@ struct DockApp {
     
     // Taskbar state
     taskbar_hidden: bool,
+    last_taskbar_check: Instant,
+    
+    // Mouse polling
+    last_mouse_poll: Instant,
 }
 
 impl DockApp {
@@ -202,6 +234,8 @@ impl DockApp {
             last_config_poll: Instant::now(),
             tooltip: None,
             taskbar_hidden: false,
+            last_taskbar_check: Instant::now(),
+            last_mouse_poll: Instant::now(),
         }
     }
     
@@ -411,12 +445,8 @@ impl DockApp {
                     .spawn();
             }
             "system_tray" => {
-                // Focus system tray with Win+B, then press Enter to open overflow
-                let script = r#"$sig = '[DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);'; $kb = Add-Type -MemberDefinition $sig -Name KB2 -PassThru; $kb::keybd_event(0x5B,0,0,0); $kb::keybd_event(0x42,0,0,0); $kb::keybd_event(0x42,0,2,0); $kb::keybd_event(0x5B,0,2,0); Start-Sleep -Milliseconds 100; $kb::keybd_event(0x0D,0,0,0); $kb::keybd_event(0x0D,0,2,0)"#;
-                let _ = Command::new("powershell")
-                    .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
-                    .creation_flags(0x08000000)
-                    .spawn();
+                // Show custom tray popup at cursor
+                tray_popup::show_tray_popup_at_cursor();
             }
             "quick_settings" => {
                 // Open Windows 11 Quick Settings with Win+A
@@ -513,6 +543,8 @@ impl DockApp {
             if let Some(window) = &self.window {
                 let x = ((self.screen_width as f32 - self.renderer.as_ref().unwrap().width as f32) / 2.0) as i32;
                 window.set_outer_position(PhysicalPosition::new(x, self.dock_y_current as i32));
+                // Ensure window stays visible during animation
+                window.set_visible(true);
             }
             animating = true;
         }
@@ -573,10 +605,93 @@ impl DockApp {
             }
         }
     }
+    
+    fn check_taskbar_visibility(&mut self) {
+        // Only check if we're configured to hide taskbar
+        if !self.config.dock.hide_windows_taskbar {
+            return;
+        }
+        
+        // Check periodically and re-hide if needed
+        if self.last_taskbar_check.elapsed() < TASKBAR_CHECK_INTERVAL {
+            return;
+        }
+        self.last_taskbar_check = Instant::now();
+        
+        // Aggressively re-hide taskbar in case Windows restored it
+        if self.taskbar_hidden {
+            set_taskbar_visibility(false);
+        }
+    }
+    
+    fn check_mouse_position(&mut self) {
+        if !self.config.dock.auto_hide {
+            return;
+        }
+        
+        if self.last_mouse_poll.elapsed() < MOUSE_POLL_INTERVAL {
+            return;
+        }
+        self.last_mouse_poll = Instant::now();
+        
+        // Get global cursor position
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+            use windows::Win32::Foundation::POINT;
+            
+            let mut point = POINT { x: 0, y: 0 };
+            if GetCursorPos(&mut point).is_ok() {
+                // Check if cursor is at bottom edge of screen (within trigger distance)
+                let trigger_distance = 10;
+                if point.y as u32 >= self.screen_height - trigger_distance {
+                    // Cursor at bottom edge - show dock
+                    self.show_dock();
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+            }
+        }
+    }
 
     fn show_dock(&mut self) {
         self.dock_y_target = self.dock_y_visible;
         self.hide_timer = None;
+        
+        // Ensure window is actually visible and on top
+        if let Some(window) = &self.window {
+            window.set_visible(true);
+            window.focus_window();
+        }
+    }
+    
+    fn show_dock_at_cursor(&mut self) {
+        // Get cursor position
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+            use windows::Win32::Foundation::POINT;
+            
+            let mut point = POINT { x: 0, y: 0 };
+            if GetCursorPos(&mut point).is_ok() {
+                // Position dock centered horizontally at cursor X, at normal bottom position
+                if let (Some(window), Some(renderer)) = (&self.window, &self.renderer) {
+                    let dock_w = renderer.width as i32;
+                    
+                    // Center on cursor X, clamped to screen bounds
+                    let mut x = point.x - (dock_w / 2);
+                    x = x.max(0).min((self.screen_width as i32) - dock_w);
+                    
+                    // Use normal visible Y position
+                    let y = self.dock_y_visible as i32;
+                    
+                    window.set_outer_position(PhysicalPosition::new(x, y));
+                    self.dock_y_current = y as f32;
+                }
+            }
+        }
+        
+        // Show and focus the dock
+        self.show_dock();
     }
 
     fn start_hide(&mut self) {
@@ -634,7 +749,7 @@ impl DockApp {
         
         // Perform hit test at click time using window-local cursor position
         let clicked_item = if let Some(renderer) = &self.renderer {
-            renderer.hit_test(local_x, local_y, &self.config.items)
+            renderer.hit_test(local_x, local_y, &self.config.items, &self.icon_scales)
         } else {
             None
         };
@@ -818,8 +933,8 @@ impl ApplicationHandler for DockApp {
         let offset = self.config.dock.negative_vertical_offset;
         // Positive offset = move down (bury into edge)
         let y_vis = (screen.height as i32 - dock_h as i32 + offset) as u32;
-        // When hidden, keep 2 pixels visible at bottom edge so we can detect cursor
-        let y_hid = screen.height - 2;
+        // When hidden, keep 5 pixels visible at bottom edge for more reliable cursor detection
+        let y_hid = screen.height - 5;
         
         self.dock_y_visible = y_vis as f32;
         self.dock_y_hidden = y_hid as f32;
@@ -884,6 +999,7 @@ impl ApplicationHandler for DockApp {
                 self.reload_config();
                 self.update_running_states();
                 self.check_hide();
+                self.check_taskbar_visibility();
                 let _ = self.update_animations();
                 self.redraw();
             }
@@ -892,6 +1008,8 @@ impl ApplicationHandler for DockApp {
                 self.cursor_in_window = true;
                 self.cursor_x = position.x as f32;
                 self.cursor_y = position.y as f32;
+                
+                // Show dock and ensure it stays on top
                 self.show_dock();
                 
                 // Check if we should start dragging (mouse moved enough while button held)
@@ -909,6 +1027,7 @@ impl ApplicationHandler for DockApp {
                             position.x as i32,
                             position.y as i32,
                             &self.config.items,
+                            &self.icon_scales,
                         );
                         self.hovered_item = new_hovered;
                         
@@ -944,7 +1063,10 @@ impl ApplicationHandler for DockApp {
                 // Cancel any drag in progress
                 self.dragging = false;
                 self.drag_start_idx = None;
-                self.start_hide();
+                // Only start hide timer if dock is visible (prevents race conditions)
+                if (self.dock_y_current - self.dock_y_visible).abs() < 5.0 {
+                    self.start_hide();
+                }
                 // Hide tooltip
                 if let Some(tooltip) = &mut self.tooltip {
                     tooltip.hide();
@@ -1011,11 +1133,27 @@ impl ApplicationHandler for DockApp {
                 return;
             }
         }
+        
+        // Handle tray icon clicks
+        if let Ok(event) = TrayIconEvent::receiver().try_recv() {
+            // Check for left click event
+            if matches!(event, TrayIconEvent::Click { button, .. } if matches!(button, tray_icon::MouseButton::Left)) {
+                // Show dock at cursor position when tray icon is clicked
+                self.show_dock_at_cursor();
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+        }
+        
+        // Poll mouse position to detect cursor at screen edge
+        self.check_mouse_position();
 
         // Check if we need to animate
         let needs_animation = self.is_animating();
         let needs_process_check = self.last_process_check.elapsed() >= PROCESS_CHECK_INTERVAL;
         let needs_config_check = self.last_config_poll.elapsed() >= Duration::from_millis(500);
+        let needs_mouse_check = self.last_mouse_poll.elapsed() >= MOUSE_POLL_INTERVAL;
         
         if needs_animation {
             // Animating - run at 60fps
@@ -1025,18 +1163,18 @@ impl ApplicationHandler for DockApp {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + ANIMATION_FRAME_TIME
             ));
-        } else if needs_process_check || needs_config_check || self.needs_reload {
+        } else if needs_process_check || needs_config_check || self.needs_reload || needs_mouse_check {
             // Need to check something - do it now then wait
             if let Some(window) = &self.window {
                 window.request_redraw();
             }
             event_loop.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + Duration::from_millis(100)
+                Instant::now() + Duration::from_millis(50)
             ));
         } else {
-            // Idle - wait for events, but wake up periodically to check processes
+            // Idle - wait for events, but wake up periodically to check processes and mouse
             event_loop.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + PROCESS_CHECK_INTERVAL
+                Instant::now() + MOUSE_POLL_INTERVAL.min(PROCESS_CHECK_INTERVAL)
             ));
         }
     }
