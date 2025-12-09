@@ -57,3 +57,7 @@ separator = true
 name = "VS Code"
 path = "C:\\Users\\YourUser\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
 icon = "C:\\path\\to\\your\\icons\\code.ico"
+
+[[items]]
+name = "System Tray"
+special = "system_tray"
