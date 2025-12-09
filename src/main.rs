@@ -641,14 +641,41 @@ impl DockApp {
             
             let mut point = POINT { x: 0, y: 0 };
             if GetCursorPos(&mut point).is_ok() {
-                // Check if cursor is at bottom edge of screen (within trigger distance)
                 let trigger_distance = 10;
-                if point.y as u32 >= self.screen_height - trigger_distance {
+                let at_bottom_edge = point.y as u32 >= self.screen_height - trigger_distance;
+                
+                // Check if cursor is within the dock window bounds
+                let in_dock = if let (Some(window), Some(renderer)) = (&self.window, &self.renderer) {
+                    let pos = window.outer_position().unwrap_or(PhysicalPosition::new(0, 0));
+                    let dock_x = pos.x;
+                    let dock_y = pos.y;
+                    let dock_w = renderer.width as i32;
+                    let dock_h = renderer.height as i32;
+                    
+                    point.x >= dock_x && point.x < dock_x + dock_w &&
+                    point.y >= dock_y && point.y < dock_y + dock_h
+                } else {
+                    false
+                };
+                
+                if at_bottom_edge {
                     // Cursor at bottom edge - show dock
                     self.show_dock();
+                    self.cursor_in_window = in_dock;
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
+                } else if !in_dock && self.dock_y_target == self.dock_y_visible {
+                    // Dock is visible but cursor is not in dock and not at edge - start hide timer
+                    if !self.cursor_in_window {
+                        self.start_hide();
+                    }
+                }
+                
+                // Update cursor_in_window based on actual position
+                if !in_dock && self.cursor_in_window {
+                    self.cursor_in_window = false;
+                    self.start_hide();
                 }
             }
         }
