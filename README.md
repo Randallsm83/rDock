@@ -19,9 +19,12 @@ A lightweight, customizable Windows dock application written in Rust that brings
 - **Running Indicators** - Visual indicators show which apps are currently running
 - **Hot Reload** - Automatically reloads when configuration changes
 - **System Tray Integration** - Minimize to tray with quick access
+- **System Tray Overflow** - Access hidden tray icons via special dock item
+- **Special Items** - Built-in shortcuts for Start Menu, Settings, Recycle Bin, and more
 - **Drag Reordering** - Rearrange dock items by dragging
 - **Highly Customizable** - Configure appearance, behavior, and applications via TOML
 - **Lightweight & Efficient** - Minimal resource usage (see performance section below)
+- **Windows Taskbar Replacement** - Optionally hide Windows taskbar completely
 
 ## 📋 Requirements
 
@@ -89,6 +92,40 @@ args = ["--arg1", "--arg2"]  # Optional launch arguments
 icon = "path\\to\\icon.ico"
 ```
 
+### Special Items
+
+rDock includes built-in special items for common Windows functions:
+
+```toml
+[[items]]
+name = "Start Menu"
+icon = "path\\to\\start-icon.ico"
+special = "start_menu"
+
+[[items]]
+name = "System Tray (Hidden Icons)"
+icon = "path\\to\\tray-icon.ico"
+special = "system_tray"
+```
+
+**Available special items:**
+- `start_menu` - Opens the Windows Start Menu
+- `system_tray` - Opens hidden system tray icons near cursor
+- `recycle_bin` - Opens the Recycle Bin
+- `settings` - Opens Windows Settings
+- `show_desktop` - Toggles Show Desktop
+- `task_view` - Opens Task View
+- `action_center` / `notification_center` - Opens Action Center
+- `quick_settings` - Opens Windows 11 Quick Settings
+- `file_explorer` - Opens File Explorer
+- `control_panel` - Opens Control Panel
+- `run_dialog` - Opens Run dialog
+- `this_pc` / `my_computer` - Opens This PC
+- `documents` - Opens Documents folder
+- `downloads` - Opens Downloads folder
+- `network` - Opens Network
+- `user_folder` / `home` - Opens User folder
+
 ## 🎯 Usage
 
 1. **Launch**: Run `rdock.exe` to start the dock
@@ -110,6 +147,7 @@ rdock/
 │   ├── item_editor.rs    # Dock item editing
 │   ├── renderer.rs       # 2D rendering engine
 │   ├── tooltip.rs        # Hover tooltips
+│   ├── tray_popup.rs     # System tray overflow popup
 │   └── window_focus.rs   # Window focus management
 ├── Cargo.toml            # Rust dependencies
 └── config.toml           # User configuration
