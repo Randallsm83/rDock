@@ -5,8 +5,8 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::UI::Shell::{
-    IFileDialog, IShellItem, FileOpenDialog, FOS_FILEMUSTEXIST, FOS_PATHMUSTEXIST,
-    SIGDN_FILESYSPATH,
+    IFileDialog, IShellItem, FileOpenDialog, FileSaveDialog, FOS_FILEMUSTEXIST, FOS_PATHMUSTEXIST,
+    FOS_OVERWRITEPROMPT, SIGDN_FILESYSPATH,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
@@ -26,6 +26,8 @@ pub enum ContextMenuAction {
     AddSpecial(String),  // special item type
     ToggleLock,
     OpenConfig,
+    SaveConfigAs,
+    LoadConfig,
     Quit,
 }
 
@@ -38,6 +40,8 @@ const ID_TOGGLE_LOCK: u32 = 1006;
 const ID_OPEN_CONFIG: u32 = 1007;
 const ID_QUIT: u32 = 1008;
 const ID_EMPTY_RECYCLE_BIN: u32 = 1009;
+const ID_SAVE_CONFIG_AS: u32 = 1010;
+const ID_LOAD_CONFIG: u32 = 1011;
 
 // Special item IDs start at 2000
 const ID_SPECIAL_BASE: u32 = 2000;
@@ -122,8 +126,13 @@ pub fn show_context_menu(hwnd: isize, x: i32, y: i32, item_index: Option<usize>,
         let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
         
         let config_text: Vec<u16> = "Open Config...\0".encode_utf16().collect();
+        let save_text: Vec<u16> = "Save Config As...\0".encode_utf16().collect();
+        let load_text: Vec<u16> = "Load Config...\0".encode_utf16().collect();
         let quit_text: Vec<u16> = "Quit\0".encode_utf16().collect();
         let _ = AppendMenuW(hmenu, MF_STRING, ID_OPEN_CONFIG as usize, PCWSTR(config_text.as_ptr()));
+        let _ = AppendMenuW(hmenu, MF_STRING, ID_SAVE_CONFIG_AS as usize, PCWSTR(save_text.as_ptr()));
+        let _ = AppendMenuW(hmenu, MF_STRING, ID_LOAD_CONFIG as usize, PCWSTR(load_text.as_ptr()));
+        let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(hmenu, MF_STRING, ID_QUIT as usize, PCWSTR(quit_text.as_ptr()));
 
         // Required: set foreground window so menu dismisses properly on click outside
@@ -162,6 +171,8 @@ pub fn show_context_menu(hwnd: isize, x: i32, y: i32, item_index: Option<usize>,
             ID_ADD_SEPARATOR => ContextMenuAction::AddSeparator,
             ID_TOGGLE_LOCK => ContextMenuAction::ToggleLock,
             ID_OPEN_CONFIG => ContextMenuAction::OpenConfig,
+            ID_SAVE_CONFIG_AS => ContextMenuAction::SaveConfigAs,
+            ID_LOAD_CONFIG => ContextMenuAction::LoadConfig,
             ID_QUIT => ContextMenuAction::Quit,
             _ => ContextMenuAction::None,
         }
@@ -281,8 +292,87 @@ fn pick_file(title: &str, filters: &[(&str, &str)], initial_path: Option<&PathBu
     }
 }
 
+/// Open file dialog to select a config file to load
+pub fn pick_config_file() -> Option<PathBuf> {
+    pick_file(
+        "Load Config",
+        &[("TOML Config", "*.toml"), ("All Files", "*.*")],
+        None,
+    )
+}
+
+/// Save file dialog to save config
+pub fn save_config_dialog(initial_path: Option<&PathBuf>) -> Option<PathBuf> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        
+        let dialog: IFileDialog = match CoCreateInstance(&FileSaveDialog, None, CLSCTX_INPROC_SERVER) {
+            Ok(d) => d,
+            Err(_) => {
+                CoUninitialize();
+                return None;
+            }
+        };
+
+        // Set options
+        if let Ok(opts) = dialog.GetOptions() {
+            let _ = dialog.SetOptions(opts | FOS_OVERWRITEPROMPT | FOS_PATHMUSTEXIST);
+        }
+
+        // Set title
+        let title_wide: Vec<u16> = "Save Config As".encode_utf16().chain(std::iter::once(0)).collect();
+        let _ = dialog.SetTitle(PCWSTR(title_wide.as_ptr()));
+        
+        // Set default extension
+        let ext_wide: Vec<u16> = "toml".encode_utf16().chain(std::iter::once(0)).collect();
+        let _ = dialog.SetDefaultExtension(PCWSTR(ext_wide.as_ptr()));
+        
+        // Set default filename
+        let filename_wide: Vec<u16> = "config.toml".encode_utf16().chain(std::iter::once(0)).collect();
+        let _ = dialog.SetFileName(PCWSTR(filename_wide.as_ptr()));
+
+        // Set initial folder if path exists
+        if let Some(path) = initial_path {
+            let folder = path.parent().map(|p| p.to_path_buf());
+            if let Some(folder_path) = folder {
+                let folder_wide: Vec<u16> = folder_path.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+                if let Ok(shell_item) = windows::Win32::UI::Shell::SHCreateItemFromParsingName::<_, _, IShellItem>(
+                    PCWSTR(folder_wide.as_ptr()),
+                    None,
+                ) {
+                    let _ = dialog.SetFolder(&shell_item);
+                }
+            }
+        }
+
+        // Build filter spec
+        let filter_name: Vec<u16> = "TOML Config".encode_utf16().chain(std::iter::once(0)).collect();
+        let filter_pattern: Vec<u16> = "*.toml".encode_utf16().chain(std::iter::once(0)).collect();
+        let filter_specs = [windows::Win32::UI::Shell::Common::COMDLG_FILTERSPEC {
+            pszName: PCWSTR(filter_name.as_ptr()),
+            pszSpec: PCWSTR(filter_pattern.as_ptr()),
+        }];
+        let _ = dialog.SetFileTypes(&filter_specs);
+
+        // Show dialog
+        let result = if dialog.Show(HWND::default()).is_ok() {
+            dialog.GetResult().ok().and_then(|item: IShellItem| {
+                item.GetDisplayName(SIGDN_FILESYSPATH).ok().map(|path| {
+                    let path_str = path.to_string().unwrap_or_default();
+                    PathBuf::from(path_str)
+                })
+            })
+        } else {
+            None
+        };
+
+        CoUninitialize();
+        result
+    }
+}
+
 /// Simple input dialog for item name (uses a basic approach)
-pub fn input_dialog(title: &str, prompt: &str, default: &str) -> Option<String> {
+pub fn input_dialog(title: &str, _prompt: &str, default: &str) -> Option<String> {
     // For simplicity, we'll use a workaround - create a temp file approach
     // A proper implementation would use a custom dialog window
     // For now, return the default or a generated name
