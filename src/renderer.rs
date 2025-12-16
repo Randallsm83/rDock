@@ -3,6 +3,15 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[cfg(windows)]
+use windows::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, ExtractIconExW};
+#[cfg(windows)]
+use windows::Win32::UI::WindowsAndMessaging::{GetIconInfo, DestroyIcon, ICONINFO, HICON};
+#[cfg(windows)]
+use windows::Win32::Graphics::Gdi::{GetDIBits, DeleteObject, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, CreateCompatibleDC, DeleteDC, SelectObject};
+#[cfg(windows)]
+use windows::core::PCWSTR;
+
 pub struct Renderer {
     pub width: u32,
     pub height: u32,
@@ -55,14 +64,265 @@ impl Renderer {
         // Use 6x size to ensure we have enough data for sharp rendering
         let base_load_size = (icon_size * 6).max(384);
         for item in items {
+            // Skip separators
+            if item.is_separator() {
+                continue;
+            }
+            
+            // Try custom icon first
             if let Some(icon_path) = &item.icon {
                 if let Ok(pixels) = renderer.load_icon(icon_path, base_load_size) {
                     renderer.icons.insert(icon_path.clone(), pixels);
+                    continue;
+                }
+            }
+            
+            // Try to get icon for special items
+            if let Some(special) = &item.special {
+                if let Some(pixels) = renderer.load_special_icon(special, base_load_size) {
+                    // Use special name as key
+                    renderer.icons.insert(PathBuf::from(format!("special:{}", special)), pixels);
+                    continue;
+                }
+            }
+            
+            // Try to extract icon from executable path
+            if !item.path.as_os_str().is_empty() && item.path.exists() {
+                if let Some(pixels) = renderer.extract_exe_icon(&item.path, base_load_size) {
+                    renderer.icons.insert(item.path.clone(), pixels);
                 }
             }
         }
 
         Ok(renderer)
+    }
+    
+    /// Get the icon key for an item (for looking up in the icons HashMap)
+    pub fn get_icon_key(item: &DockItem) -> Option<PathBuf> {
+        // Custom icon path takes priority
+        if let Some(icon_path) = &item.icon {
+            return Some(icon_path.clone());
+        }
+        // Special items use "special:name" as key
+        if let Some(special) = &item.special {
+            return Some(PathBuf::from(format!("special:{}", special)));
+        }
+        // Regular items use their executable path
+        if !item.path.as_os_str().is_empty() {
+            return Some(item.path.clone());
+        }
+        None
+    }
+    
+    #[cfg(windows)]
+    fn load_special_icon(&self, special: &str, size: u32) -> Option<Vec<u32>> {
+        // Map special items to (dll_path, icon_index) or exe path
+        // shell32.dll icon indices: https://docs.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-extracticonexw
+        // Common shell32.dll icons:
+        // 0 = unknown/document, 3 = folder closed, 4 = folder open, 15 = computer/this pc
+        // 17 = computer with checkmark, 31 = recycle bin empty, 32 = recycle bin full
+        // 34 = desktop, 43 = favorites, 46 = user folder, 137 = run
+        // 21 = network, 22 = network folder, 23 = printer, 27 = control panel
+        // imageres.dll has better icons for Windows 10/11
+        
+        // shell32.dll common indices:
+        // 3=folder, 4=folder open, 15=my computer, 17=my computer (alt), 21=network
+        // 31=recycle empty, 32=recycle full, 34=desktop, 35=control panel, 24=run
+        // 43=folder with star, 46=user, 130=run (alt), 137=command prompt
+        // 319=windows logo
+        let (dll_path, icon_index): (&str, i32) = match special {
+            "file_explorer" => (r"C:\Windows\explorer.exe", 0),
+            "settings" => (r"C:\Windows\System32\SystemSettingsAdminFlows.exe", 0),
+            "control_panel" => (r"C:\Windows\System32\control.exe", 0),
+            "recycle_bin" => (r"C:\Windows\System32\shell32.dll", 31), // Recycle bin empty
+            "this_pc" | "my_computer" => (r"C:\Windows\System32\shell32.dll", 15), // Computer
+            "user_folder" | "home" => (r"C:\Windows\System32\shell32.dll", 46), // User folder
+            "documents" => (r"C:\Windows\System32\shell32.dll", 1), // Documents
+            "downloads" => (r"C:\Windows\System32\shell32.dll", 3), // Folder (downloads)
+            "network" => (r"C:\Windows\System32\shell32.dll", 17), // Network neighborhood
+            "run_dialog" => (r"C:\Windows\System32\shell32.dll", 24), // Run
+            "show_desktop" => (r"C:\Windows\System32\shell32.dll", 34), // Desktop
+            "task_view" => (r"C:\Windows\System32\shell32.dll", 15), // Use computer icon for task view
+            "action_center" | "notification_center" => (r"C:\Windows\System32\shell32.dll", 13), // Notifications/info
+            "quick_settings" => (r"C:\Windows\System32\shell32.dll", 21), // Settings/config
+            "start_menu" => (r"C:\Windows\System32\shell32.dll", 319), // Windows logo
+            "system_tray" => (r"C:\Windows\System32\shell32.dll", 43), // Tray/folder with star
+            _ => return None,
+        };
+        
+        self.extract_icon_from_file(dll_path, icon_index, size)
+    }
+    
+    #[cfg(windows)]
+    fn extract_icon_from_file(&self, path: &str, index: i32, size: u32) -> Option<Vec<u32>> {
+        unsafe {
+            let wide_path: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+            
+            let mut large_icon: HICON = HICON::default();
+            let count = ExtractIconExW(
+                PCWSTR(wide_path.as_ptr()),
+                index,
+                Some(&mut large_icon),
+                None,
+                1,
+            );
+            
+            if count == 0 || large_icon.is_invalid() {
+                return None;
+            }
+            
+            let pixels = self.icon_to_pixels(large_icon, size);
+            let _ = DestroyIcon(large_icon);
+            pixels
+        }
+    }
+    
+    #[cfg(not(windows))]
+    fn load_special_icon(&self, _special: &str, _size: u32) -> Option<Vec<u32>> {
+        None
+    }
+    
+    #[cfg(windows)]
+    fn extract_exe_icon(&self, path: &PathBuf, size: u32) -> Option<Vec<u32>> {
+        use std::ptr::null_mut;
+        
+        unsafe {
+            // Convert path to wide string
+            let wide_path: Vec<u16> = path.to_string_lossy()
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            
+            let mut shfi: SHFILEINFOW = std::mem::zeroed();
+            let result = SHGetFileInfoW(
+                PCWSTR(wide_path.as_ptr()),
+                windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL,
+                Some(&mut shfi),
+                std::mem::size_of::<SHFILEINFOW>() as u32,
+                SHGFI_ICON | SHGFI_LARGEICON,
+            );
+            
+            if result == 0 || shfi.hIcon.is_invalid() {
+                return None;
+            }
+            
+            let pixels = self.icon_to_pixels(shfi.hIcon, size);
+            let _ = DestroyIcon(shfi.hIcon);
+            pixels
+        }
+    }
+    
+    #[cfg(windows)]
+    fn icon_to_pixels(&self, hicon: windows::Win32::UI::WindowsAndMessaging::HICON, target_size: u32) -> Option<Vec<u32>> {
+        use windows::Win32::Graphics::Gdi::HGDIOBJ;
+        
+        unsafe {
+            let mut icon_info: ICONINFO = std::mem::zeroed();
+            if !GetIconInfo(hicon, &mut icon_info).is_ok() {
+                return None;
+            }
+            
+            let hdc = CreateCompatibleDC(None);
+            if hdc.is_invalid() {
+                if !icon_info.hbmColor.is_invalid() {
+                    let _ = DeleteObject(HGDIOBJ(icon_info.hbmColor.0));
+                }
+                if !icon_info.hbmMask.is_invalid() {
+                    let _ = DeleteObject(HGDIOBJ(icon_info.hbmMask.0));
+                }
+                return None;
+            }
+            
+            // Get bitmap info
+            let mut bmi: BITMAPINFO = std::mem::zeroed();
+            bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+            
+            // First call to get dimensions
+            let old_bmp = SelectObject(hdc, HGDIOBJ(icon_info.hbmColor.0));
+            if GetDIBits(hdc, icon_info.hbmColor, 0, 0, None, &mut bmi, DIB_RGB_COLORS) == 0 {
+                SelectObject(hdc, old_bmp);
+                let _ = DeleteDC(hdc);
+                if !icon_info.hbmColor.is_invalid() {
+                    let _ = DeleteObject(HGDIOBJ(icon_info.hbmColor.0));
+                }
+                if !icon_info.hbmMask.is_invalid() {
+                    let _ = DeleteObject(HGDIOBJ(icon_info.hbmMask.0));
+                }
+                return None;
+            }
+            
+            let width = bmi.bmiHeader.biWidth as u32;
+            let height = bmi.bmiHeader.biHeight.unsigned_abs();
+            
+            // Prepare for actual pixel data
+            bmi.bmiHeader.biBitCount = 32;
+            bmi.bmiHeader.biCompression = 0; // BI_RGB
+            bmi.bmiHeader.biHeight = -(height as i32); // Top-down
+            
+            let mut pixels: Vec<u8> = vec![0; (width * height * 4) as usize];
+            
+            if GetDIBits(
+                hdc,
+                icon_info.hbmColor,
+                0,
+                height,
+                Some(pixels.as_mut_ptr() as *mut _),
+                &mut bmi,
+                DIB_RGB_COLORS,
+            ) == 0 {
+                SelectObject(hdc, old_bmp);
+                let _ = DeleteDC(hdc);
+                if !icon_info.hbmColor.is_invalid() {
+                    let _ = DeleteObject(HGDIOBJ(icon_info.hbmColor.0));
+                }
+                if !icon_info.hbmMask.is_invalid() {
+                    let _ = DeleteObject(HGDIOBJ(icon_info.hbmMask.0));
+                }
+                return None;
+            }
+            
+            SelectObject(hdc, old_bmp);
+            let _ = DeleteDC(hdc);
+            if !icon_info.hbmColor.is_invalid() {
+                let _ = DeleteObject(HGDIOBJ(icon_info.hbmColor.0));
+            }
+            if !icon_info.hbmMask.is_invalid() {
+                let _ = DeleteObject(HGDIOBJ(icon_info.hbmMask.0));
+            }
+            
+            // Convert BGRA to ARGB and create image
+            let img_buf = image::RgbaImage::from_fn(width, height, |x, y| {
+                let idx = ((y * width + x) * 4) as usize;
+                let b = pixels[idx];
+                let g = pixels[idx + 1];
+                let r = pixels[idx + 2];
+                let a = pixels[idx + 3];
+                image::Rgba([r, g, b, a])
+            });
+            
+            // Scale to target size
+            let img = image::DynamicImage::ImageRgba8(img_buf);
+            let scaled = img.resize_exact(target_size, target_size, image::imageops::FilterType::Lanczos3);
+            let rgba = scaled.to_rgba8();
+            
+            let result: Vec<u32> = rgba
+                .chunks_exact(4)
+                .map(|c| {
+                    let a = c[3] as u32;
+                    let r = c[0] as u32;
+                    let g = c[1] as u32;
+                    let b = c[2] as u32;
+                    (a << 24) | (r << 16) | (g << 8) | b
+                })
+                .collect();
+            
+            Some(result)
+        }
+    }
+    
+    #[cfg(not(windows))]
+    fn extract_exe_icon(&self, _path: &PathBuf, _size: u32) -> Option<Vec<u32>> {
+        None
     }
 
     fn load_icon(&self, path: &PathBuf, size: u32) -> Result<Vec<u32>> {
@@ -225,20 +485,15 @@ impl Renderer {
                 self.draw_glow_scaled(buffer, width, x + scaled_size / 2, y + scaled_size / 2, scaled_size, glow_intensity);
             }
             
-            // Draw icon
-            if let Some(icon_path) = &item.icon {
-                let src_size = (self.icon_size * 6).max(384);
-                let pixels = if let Some(p) = self.icons.get(icon_path) {
-                    p
+            // Draw icon - use get_icon_key to find the right icon
+            let src_size = (self.icon_size * 6).max(384);
+            if let Some(icon_key) = Self::get_icon_key(item) {
+                if let Some(pixels) = self.icons.get(&icon_key) {
+                    self.draw_icon_bicubic(buffer, width, pixels, src_size, x, y, scaled_size);
+                    icon_draws.push((x, y, scaled_size, pixels, src_size));
                 } else {
                     self.draw_placeholder(buffer, width, x, y, scaled_size);
-                    x_pos += scaled_size as f32 + self.spacing.x as f32;
-                    rendered_count += 1;
-                    continue;
-                };
-                
-                self.draw_icon_bicubic(buffer, width, pixels, src_size, x, y, scaled_size);
-                icon_draws.push((x, y, scaled_size, pixels, src_size));
+                }
             } else {
                 self.draw_placeholder(buffer, width, x, y, scaled_size);
             }
@@ -273,8 +528,8 @@ impl Renderer {
         if is_dragging && drag_from < items.len() {
             let item = &items[drag_from];
             if !item.is_separator() {
-                if let Some(icon_path) = &item.icon {
-                    if let Some(pixels) = self.icons.get(icon_path) {
+                if let Some(icon_key) = Self::get_icon_key(item) {
+                    if let Some(pixels) = self.icons.get(&icon_key) {
                         let src_size = (self.icon_size * 6).max(384);
                         let drag_size = self.icon_size;
                         let drag_x = (drag_cursor_x - drag_size as f32 / 2.0).max(0.0) as u32;
