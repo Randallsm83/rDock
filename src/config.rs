@@ -66,7 +66,7 @@ impl<'de> Deserialize<'de> for Spacing {
 }
 
 impl Default for Spacing {
-    fn default() -> Self { Self::uniform(12) }
+    fn default() -> Self { Self::xy(0, 12) }
 }
 
 /// Item spacing: single value or [x, y] for horizontal/vertical
@@ -114,7 +114,7 @@ impl<'de> Deserialize<'de> for ItemSpacing {
 }
 
 impl Default for ItemSpacing {
-    fn default() -> Self { Self::uniform(8) }
+    fn default() -> Self { Self::uniform(12) }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -132,7 +132,7 @@ pub struct DockSettings {
     pub spacing: ItemSpacing,
     #[serde(default)]
     pub padding: Spacing,
-    #[serde(default, alias = "vertical_offset")]
+    #[serde(default = "default_negative_vertical_offset", alias = "vertical_offset")]
     pub negative_vertical_offset: i32,
     #[serde(default = "default_background_color")]
     pub background_color: String,
@@ -144,14 +144,18 @@ pub struct DockSettings {
     pub auto_hide: bool,
     #[serde(default = "default_auto_hide_delay")]
     pub auto_hide_delay_ms: u64,
+    #[serde(default = "default_auto_show_delay")]
+    pub auto_show_delay_ms: u64,
     #[serde(default = "default_corner_radius")]
     pub corner_radius: u32,
     #[serde(default = "default_magnification")]
     pub magnification: f32,
-    #[serde(default)]
+    #[serde(default = "default_locked")]
     pub locked: bool,
-    #[serde(default, alias = "hide_taskbar")]
+    #[serde(default = "default_hide_windows_taskbar", alias = "hide_taskbar")]
     pub hide_windows_taskbar: bool,
+    #[serde(default = "default_hide_in_fullscreen")]
+    pub hide_in_fullscreen: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -197,13 +201,18 @@ impl DockItem {
 }
 
 fn default_icon_size() -> u32 { 48 }
-fn default_background_color() -> String { "#1e1e2e".to_string() }
-fn default_background_opacity() -> f32 { 0.9 }
-fn default_indicator_color() -> String { "#cba6f7".to_string() }
+fn default_negative_vertical_offset() -> i32 { 8 }
+fn default_background_color() -> String { "#1a1928".to_string() }
+fn default_background_opacity() -> f32 { 1.0 }
+fn default_indicator_color() -> String { "#f38ba8".to_string() }
 fn default_auto_hide() -> bool { true }
-fn default_auto_hide_delay() -> u64 { 400 }
+fn default_auto_hide_delay() -> u64 { 250 }
+fn default_auto_show_delay() -> u64 { 250 }
 fn default_corner_radius() -> u32 { 12 }
 fn default_magnification() -> f32 { 1.5 }
+fn default_locked() -> bool { true }
+fn default_hide_windows_taskbar() -> bool { true }
+fn default_hide_in_fullscreen() -> bool { true }
 
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {

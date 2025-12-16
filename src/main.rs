@@ -37,7 +37,70 @@ const ANIMATION_FRAME_TIME: Duration = Duration::from_millis(16);
 const HIDE_DELAY: Duration = Duration::from_millis(500);
 const TASKBAR_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const MOUSE_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const FULLSCREEN_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 
+
+/// Check if a fullscreen application is currently running
+#[cfg(windows)]
+fn is_fullscreen_app_active() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
+    
+    unsafe {
+        // Get the foreground window
+        let fg_hwnd = GetForegroundWindow();
+        if fg_hwnd.0.is_null() {
+            return false;
+        }
+        
+        // Skip desktop and shell windows
+        let desktop = GetDesktopWindow();
+        let shell = GetShellWindow();
+        if fg_hwnd == desktop || fg_hwnd == shell {
+            return false;
+        }
+        
+        // Get window rect
+        let mut window_rect = RECT::default();
+        if GetWindowRect(fg_hwnd, &mut window_rect).is_err() {
+            return false;
+        }
+        
+        // Get monitor info for the window's monitor
+        let monitor = MonitorFromWindow(fg_hwnd, MONITOR_DEFAULTTOPRIMARY);
+        let mut monitor_info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(monitor, &mut monitor_info).as_bool() {
+            return false;
+        }
+        
+        let screen_rect = monitor_info.rcMonitor;
+        
+        // Check if window covers the entire screen (with small tolerance for rounding)
+        let tolerance = 5;
+        let covers_screen = 
+            window_rect.left <= screen_rect.left + tolerance &&
+            window_rect.top <= screen_rect.top + tolerance &&
+            window_rect.right >= screen_rect.right - tolerance &&
+            window_rect.bottom >= screen_rect.bottom - tolerance;
+        
+        if !covers_screen {
+            return false;
+        }
+        
+        // Check window style - fullscreen apps often have no caption/border
+        let style = GetWindowLongW(fg_hwnd, GWL_STYLE) as u32;
+        let has_caption = (style & WS_CAPTION.0) != 0;
+        let has_thickframe = (style & WS_THICKFRAME.0) != 0;
+        
+        // Fullscreen if covers screen AND (no caption OR no thick frame)
+        // This catches both exclusive fullscreen and borderless windowed
+        !has_caption || !has_thickframe
+    }
+}
 
 /// Hide or show the Windows taskbar
 #[cfg(windows)]
@@ -151,6 +214,7 @@ struct DockApp {
     dock_y_hidden: f32,
     dock_y_visible: f32,
     hide_timer: Option<Instant>,
+    show_timer: Option<Instant>,
     icon_scales: Vec<f32>,
     
     // Cursor position for smooth wave effect
@@ -187,6 +251,10 @@ struct DockApp {
     
     // Mouse polling
     last_mouse_poll: Instant,
+    
+    // Fullscreen detection
+    fullscreen_active: bool,
+    last_fullscreen_check: Instant,
 }
 
 impl DockApp {
@@ -216,6 +284,7 @@ impl DockApp {
             dock_y_hidden: 0.0,
             dock_y_visible: 0.0,
             hide_timer: None,
+            show_timer: None,
             icon_scales: vec![1.0; n],
             cursor_x: -1000.0,
             cursor_y: -1000.0,
@@ -236,6 +305,8 @@ impl DockApp {
             taskbar_hidden: false,
             last_taskbar_check: Instant::now(),
             last_mouse_poll: Instant::now(),
+            fullscreen_active: false,
+            last_fullscreen_check: Instant::now(),
         }
     }
     
@@ -606,6 +677,18 @@ impl DockApp {
         }
     }
     
+    fn check_show(&mut self) {
+        if !self.config.dock.auto_hide {
+            return;
+        }
+        let show_delay = Duration::from_millis(self.config.dock.auto_show_delay_ms);
+        if let Some(t) = self.show_timer {
+            if t.elapsed() >= show_delay {
+                self.show_dock();
+            }
+        }
+    }
+    
     fn check_taskbar_visibility(&mut self) {
         // Only check if we're configured to hide taskbar
         if !self.config.dock.hide_windows_taskbar {
@@ -624,8 +707,34 @@ impl DockApp {
         }
     }
     
+    fn check_fullscreen(&mut self) {
+        if !self.config.dock.hide_in_fullscreen {
+            return;
+        }
+        
+        if self.last_fullscreen_check.elapsed() < FULLSCREEN_CHECK_INTERVAL {
+            return;
+        }
+        self.last_fullscreen_check = Instant::now();
+        
+        let was_fullscreen = self.fullscreen_active;
+        self.fullscreen_active = is_fullscreen_app_active();
+        
+        // If fullscreen state changed, update dock visibility
+        if self.fullscreen_active && !was_fullscreen {
+            // Entering fullscreen - force hide
+            self.dock_y_target = self.dock_y_hidden;
+            self.hide_timer = None;
+        }
+    }
+    
     fn check_mouse_position(&mut self) {
         if !self.config.dock.auto_hide {
+            return;
+        }
+        
+        // Don't show dock if fullscreen app is active
+        if self.fullscreen_active {
             return;
         }
         
@@ -641,7 +750,7 @@ impl DockApp {
             
             let mut point = POINT { x: 0, y: 0 };
             if GetCursorPos(&mut point).is_ok() {
-                let trigger_distance = 10;
+                let trigger_distance = 2;
                 let at_bottom_edge = point.y as u32 >= self.screen_height - trigger_distance;
                 
                 // Check if cursor is within the dock window bounds
@@ -659,13 +768,23 @@ impl DockApp {
                 };
                 
                 if at_bottom_edge {
-                    // Cursor at bottom edge - show dock
-                    self.show_dock();
+                    // Cursor at bottom edge - start show timer or show immediately
+                    let show_delay = self.config.dock.auto_show_delay_ms;
+                    if show_delay == 0 {
+                        self.show_dock();
+                    } else if self.show_timer.is_none() && self.dock_y_target != self.dock_y_visible {
+                        self.show_timer = Some(Instant::now());
+                    }
                     self.cursor_in_window = in_dock;
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
-                } else if !in_dock && self.dock_y_target == self.dock_y_visible {
+                } else {
+                    // Not at edge - cancel show timer
+                    self.show_timer = None;
+                }
+                
+                if !at_bottom_edge && !in_dock && self.dock_y_target == self.dock_y_visible {
                     // Dock is visible but cursor is not in dock and not at edge - start hide timer
                     if !self.cursor_in_window {
                         self.start_hide();
@@ -684,6 +803,7 @@ impl DockApp {
     fn show_dock(&mut self) {
         self.dock_y_target = self.dock_y_visible;
         self.hide_timer = None;
+        self.show_timer = None;
         
         // Ensure window is actually visible and on top
         if let Some(window) = &self.window {
@@ -875,6 +995,29 @@ impl DockApp {
                     .args(["/c", "start", "", self.config_path.to_str().unwrap_or("")])
                     .spawn();
             }
+            ContextMenuAction::SaveConfigAs => {
+                // Save config to a new location
+                if let Some(path) = context_menu::save_config_dialog(Some(&self.config_path)) {
+                    if let Err(e) = self.config.save(&path) {
+                        eprintln!("Failed to save config: {}", e);
+                    }
+                }
+            }
+            ContextMenuAction::LoadConfig => {
+                // Load config from a file
+                if let Some(path) = context_menu::pick_config_file() {
+                    match Config::load(&path) {
+                        Ok(new_config) => {
+                            self.config = new_config;
+                            self.config_path = path;
+                            self.needs_reload = true;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to load config: {}", e);
+                        }
+                    }
+                }
+            }
             ContextMenuAction::EmptyRecycleBin => {
                 self.empty_recycle_bin();
             }
@@ -980,6 +1123,9 @@ impl ApplicationHandler for DockApp {
 
         let window = Rc::new(event_loop.create_window(attrs).unwrap());
         
+        // Set position again after creation - with_position doesn't always work
+        window.set_outer_position(PhysicalPosition::new(x as i32, y_vis as i32));
+        
         let ctx = softbuffer::Context::new(window.clone()).unwrap();
         let mut surface = Surface::new(&ctx, window.clone()).unwrap();
         surface.resize(NonZeroU32::new(dock_w).unwrap(), NonZeroU32::new(dock_h).unwrap()).unwrap();
@@ -1007,6 +1153,13 @@ impl ApplicationHandler for DockApp {
             set_taskbar_visibility(false);
             self.taskbar_hidden = true;
         }
+        
+        // Force position by starting slightly off and animating to correct position
+        // This works around a winit/Windows issue where initial position is ignored
+        self.dock_y_current = y_vis as f32 + 10.0;
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
     }
     
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
@@ -1026,6 +1179,7 @@ impl ApplicationHandler for DockApp {
                 self.reload_config();
                 self.update_running_states();
                 self.check_hide();
+                self.check_show();
                 self.check_taskbar_visibility();
                 let _ = self.update_animations();
                 self.redraw();
@@ -1175,12 +1329,16 @@ impl ApplicationHandler for DockApp {
         
         // Poll mouse position to detect cursor at screen edge
         self.check_mouse_position();
+        
+        // Check for fullscreen apps
+        self.check_fullscreen();
 
         // Check if we need to animate
         let needs_animation = self.is_animating();
         let needs_process_check = self.last_process_check.elapsed() >= PROCESS_CHECK_INTERVAL;
         let needs_config_check = self.last_config_poll.elapsed() >= Duration::from_millis(500);
         let needs_mouse_check = self.last_mouse_poll.elapsed() >= MOUSE_POLL_INTERVAL;
+        let needs_fullscreen_check = self.last_fullscreen_check.elapsed() >= FULLSCREEN_CHECK_INTERVAL;
         
         if needs_animation {
             // Animating - run at 60fps
@@ -1190,7 +1348,7 @@ impl ApplicationHandler for DockApp {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + ANIMATION_FRAME_TIME
             ));
-        } else if needs_process_check || needs_config_check || self.needs_reload || needs_mouse_check {
+        } else if needs_process_check || needs_config_check || self.needs_reload || needs_mouse_check || needs_fullscreen_check {
             // Need to check something - do it now then wait
             if let Some(window) = &self.window {
                 window.request_redraw();
@@ -1205,6 +1363,126 @@ impl ApplicationHandler for DockApp {
             ));
         }
     }
+}
+
+const DEFAULT_CONFIG_TEMPLATE: &str = r##"# ╔═══════════════════════════════════════════════════════════╗
+# ║                  rDock Configuration                      ║
+# ║       Lightweight Windows Dock with Custom Icons         ║
+# ╚═══════════════════════════════════════════════════════════╝
+
+[dock]
+# ─── Size & Layout ───────────────────────────────────────────
+icon_size = 48                     # Icon size in pixels (default: 48)
+spacing = 12                       # Space between icons in pixels (default: 12)
+padding = [0, 12]                  # Dock padding [horizontal, vertical] (default: [0, 12])
+negative_vertical_offset = 8       # Push dock DOWN into bottom edge in pixels (default: 8)
+
+# ─── Appearance ──────────────────────────────────────────────
+background_color = "#1a1928"       # Dock background color (hex, default: #1a1928)
+background_opacity = 1.0           # Background transparency 0.0-1.0 (default: 1.0)
+corner_radius = 12                 # Corner roundness in pixels (default: 12)
+indicator_color = "#f38ba8"        # Color for running app indicators (default: #f38ba8)
+
+# ─── Behavior ────────────────────────────────────────────────
+auto_hide = true                   # Hide dock when not in use (default: true)
+auto_hide_delay_ms = 250           # Delay before hiding in ms (default: 250)
+auto_show_delay_ms = 250           # Delay before showing when cursor hits edge in ms (default: 250)
+magnification = 1.5                # Icon magnification on hover, 1.0 = no zoom (default: 1.5)
+locked = true                      # Prevent drag reordering of icons (default: true)
+
+# ─── Windows Integration ─────────────────────────────────────
+hide_windows_taskbar = true        # Hide Windows taskbar when dock is active (default: true)
+hide_in_fullscreen = true          # Hide dock when fullscreen app/game is active (default: true)
+
+# ═══════════════════════════════════════════════════════════
+# Dock Items
+# ═══════════════════════════════════════════════════════════
+# Each [[items]] section defines an application in the dock.
+# Required: name, path (for apps) OR special (for system items)
+# Optional: icon, args (command line arguments)
+#
+# Special items: file_explorer, settings, recycle_bin, show_desktop,
+#                task_view, action_center, control_panel, run_dialog
+#
+# To add a visual separator between icons:
+# [[items]]
+# separator = true
+#
+# Drag items to reorder them (unless locked = true above)
+# ═══════════════════════════════════════════════════════════
+
+[[items]]
+name = "Start Menu"
+special = "start_menu"
+
+[[items]]
+name = "Recycle Bin"
+special = "recycle_bin"
+
+[[items]]
+name = "This PC"
+special = "this_pc"
+
+[[items]]
+name = "User Folder"
+special = "user_folder"
+
+[[items]]
+name = "---"
+separator = true
+
+[[items]]
+name = "Settings"
+special = "settings"
+
+[[items]]
+name = "Action Center"
+special = "action_center"
+
+[[items]]
+name = "System Tray (Hidden Icons)"
+special = "system_tray"
+
+[[items]]
+name = "Quick Settings"
+special = "quick_settings"
+
+[[items]]
+name = "Show Desktop"
+special = "show_desktop"
+
+[[items]]
+name = "File Explorer"
+special = "file_explorer"
+
+[[items]]
+name = "Documents"
+special = "documents"
+
+[[items]]
+name = "Downloads"
+special = "downloads"
+
+[[items]]
+name = "Network"
+special = "network"
+
+[[items]]
+name = "Control Panel"
+special = "control_panel"
+
+[[items]]
+name = "Task View"
+special = "task_view"
+
+[[items]]
+name = "Run Dialog"
+special = "run_dialog"
+"##;
+
+fn write_default_config(path: &std::path::Path) -> Result<()> {
+    std::fs::write(path, DEFAULT_CONFIG_TEMPLATE)?;
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -1224,8 +1502,9 @@ fn main() -> Result<()> {
             if local.exists() {
                 (Config::load(&local)?, local)
             } else {
-                eprintln!("No config.toml found at {} or current directory", exe_config.display());
-                std::process::exit(1);
+                // Generate default config with comments
+                write_default_config(&exe_config)?;
+                (Config::load(&exe_config)?, exe_config)
             }
         }
     } else {
@@ -1233,8 +1512,9 @@ fn main() -> Result<()> {
         if local.exists() {
             (Config::load(&local)?, local)
         } else {
-            eprintln!("No config.toml found. Please create one.");
-            std::process::exit(1);
+            // Generate default config with comments
+            write_default_config(&local)?;
+            (Config::load(&local)?, local)
         }
     };
 
