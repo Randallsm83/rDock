@@ -23,7 +23,6 @@ pub struct Renderer {
     pub bg_color: u32,
     pub indicator_color: (u8, u8, u8),
     icons: HashMap<PathBuf, Vec<u32>>,
-    icons_large: HashMap<PathBuf, Vec<u32>>,
 }
 
 impl Renderer {
@@ -57,7 +56,6 @@ impl Renderer {
             bg_color,
             indicator_color,
             icons: HashMap::new(),
-            icons_large: HashMap::new(),
         };
 
         // Pre-load icons at very high resolution for quality scaling
@@ -182,9 +180,8 @@ impl Renderer {
         None
     }
     
-    #[cfg(windows)]
+#[cfg(windows)]
     fn extract_exe_icon(&self, path: &PathBuf, size: u32) -> Option<Vec<u32>> {
-        use std::ptr::null_mut;
         
         unsafe {
             // Convert path to wide string
@@ -668,6 +665,7 @@ impl Renderer {
         }
     }
     
+    #[allow(dead_code)]
     fn draw_reflection(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
         let scale = src_size as f32 / dst_size as f32;
         let src_w = src_size as usize;
@@ -740,6 +738,7 @@ impl Renderer {
         }
     }
     
+    #[allow(dead_code)]
     fn draw_icon_bilinear(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
         let scale = src_size as f32 / dst_size as f32;
         let src_w = src_size as usize;
@@ -1009,6 +1008,7 @@ impl Renderer {
     }
 }
 
+#[allow(dead_code)]
 fn bilinear_blend(p00: u32, p10: u32, p01: u32, p11: u32, fx: f32, fy: f32) -> u32 {
     let blend_channel = |shift: u32| -> u32 {
         let c00 = ((p00 >> shift) & 0xFF) as f32;
@@ -1058,6 +1058,7 @@ fn alpha_blend(dst: u32, src: u32) -> u32 {
     (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b
 }
 
+#[allow(dead_code)]
 fn brighten_pixel(pixel: u32) -> u32 {
     let a = (pixel >> 24) & 0xFF;
     let r = (((pixel >> 16) & 0xFF) as u32 * 120 / 100).min(255);
@@ -1076,7 +1077,9 @@ fn cubic_hermite(a: f32, b: f32, c: f32, d: f32, t: f32) -> f32 {
 }
 
 // Apply unsharp mask sharpening to improve edge clarity
+#[allow(dead_code)]
 fn sharpen_image(img: image::RgbaImage, strength: f32) -> image::RgbaImage {
+    #[allow(unused_imports)]
     use image::GenericImageView;
     let (width, height) = img.dimensions();
     let mut sharpened = img.clone();

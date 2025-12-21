@@ -40,8 +40,6 @@ impl Spacing {
         Self { top: y, right: x, bottom: y, left: x }
     }
     
-    pub fn x(&self) -> u32 { self.left + self.right }
-    pub fn y(&self) -> u32 { self.top + self.bottom }
 }
 
 impl<'de> Deserialize<'de> for Spacing {
@@ -195,9 +193,6 @@ impl DockItem {
         self.separator || self.name == "---"
     }
     
-    pub fn is_special(&self) -> bool {
-        self.special.is_some()
-    }
 }
 
 fn default_icon_size() -> u32 { 48 }
@@ -213,6 +208,28 @@ fn default_magnification() -> f32 { 1.5 }
 fn default_locked() -> bool { true }
 fn default_hide_windows_taskbar() -> bool { true }
 fn default_hide_in_fullscreen() -> bool { true }
+
+impl Default for DockSettings {
+    fn default() -> Self {
+        Self {
+            icon_size: default_icon_size(),
+            spacing: ItemSpacing::default(),
+            padding: Spacing::default(),
+            negative_vertical_offset: default_negative_vertical_offset(),
+            background_color: default_background_color(),
+            background_opacity: default_background_opacity(),
+            indicator_color: default_indicator_color(),
+            auto_hide: default_auto_hide(),
+            auto_hide_delay_ms: default_auto_hide_delay(),
+            auto_show_delay_ms: default_auto_show_delay(),
+            corner_radius: default_corner_radius(),
+            magnification: default_magnification(),
+            locked: default_locked(),
+            hide_windows_taskbar: default_hide_windows_taskbar(),
+            hide_in_fullscreen: default_hide_in_fullscreen(),
+        }
+    }
+}
 
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
@@ -231,13 +248,6 @@ impl Config {
         Ok(())
     }
 
-    pub fn default_path() -> PathBuf {
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| PathBuf::from("."));
-        exe_dir.join("config.toml")
-    }
 }
 
 /// Parse hex color string to ARGB u32

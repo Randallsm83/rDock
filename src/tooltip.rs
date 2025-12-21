@@ -128,6 +128,7 @@ fn parse_color_bgr(hex: &str) -> u32 {
 }
 
 /// Lighten a BGR color for the border
+#[allow(dead_code)]
 fn lighten_color(bgr: u32, amount: u32) -> u32 {
     let b = ((bgr >> 16) & 0xFF).saturating_add(amount).min(255);
     let g = ((bgr >> 8) & 0xFF).saturating_add(amount).min(255);
@@ -148,6 +149,7 @@ impl Tooltip {
         Self::new_internal()
     }
     
+    #[allow(dead_code)]
     pub fn new(_parent_hwnd: HWND) -> Option<Self> {
         Self::new_internal()
     }

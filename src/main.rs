@@ -10,7 +10,7 @@ mod tray_popup;
 mod window_focus;
 
 use anyhow::Result;
-use config::{Config, DockItem};
+use config::{Config, DockItem, DockSettings};
 use notify::{Watcher, RecursiveMode, Event, EventKind};
 use renderer::Renderer;
 use tooltip::Tooltip;
@@ -29,7 +29,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::platform::windows::{WindowAttributesExtWindows, WindowExtWindows};
+use winit::platform::windows::WindowAttributesExtWindows;
 use winit::window::{Window, WindowId, WindowLevel};
 
 const PROCESS_CHECK_INTERVAL: Duration = Duration::from_secs(2);
@@ -44,7 +44,7 @@ const FULLSCREEN_CHECK_INTERVAL: Duration = Duration::from_millis(500);
 #[cfg(windows)]
 fn is_fullscreen_app_active() -> bool {
     use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Foundation::RECT;
     use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
     
     unsafe {
@@ -889,7 +889,7 @@ impl DockApp {
             
             // Convert to window-local coordinates
             let hwnd_handle = windows::Win32::Foundation::HWND(hwnd as *mut _);
-            windows::Win32::Graphics::Gdi::ScreenToClient(hwnd_handle, &mut point);
+            let _ = windows::Win32::Graphics::Gdi::ScreenToClient(hwnd_handle, &mut point);
             (screen_x, screen_y, point.x, point.y)
         };
         
@@ -985,8 +985,8 @@ impl DockApp {
                 }
             }
             ContextMenuAction::ToggleLock => {
+                // Toggle lock state (not persisted - edit config file to change default)
                 self.config.dock.locked = !self.config.dock.locked;
-                self.save_config();
             }
             ContextMenuAction::OpenConfig => {
                 // Open config in default editor
@@ -1003,18 +1003,33 @@ impl DockApp {
                 }
             }
             ContextMenuAction::LoadConfig => {
-                // Load config from a file
-                if let Some(path) = context_menu::pick_config_file() {
+                // Load config from a file and save to default location
+                if let Some(path) = context_menu::pick_config_file(Some(&self.config_path)) {
                     match Config::load(&path) {
                         Ok(new_config) => {
                             self.config = new_config;
-                            self.config_path = path;
+                            // Save to default config path to persist the loaded config
+                            self.save_config();
                             self.needs_reload = true;
                         }
                         Err(e) => {
                             eprintln!("Failed to load config: {}", e);
                         }
                     }
+                }
+            }
+            ContextMenuAction::ResetSettings => {
+                // Reset dock settings to defaults, keep items
+                self.config.dock = DockSettings::default();
+                self.save_config();
+                self.needs_reload = true;
+            }
+            ContextMenuAction::ResetAll => {
+                // Write the default config template (full reset)
+                if let Err(e) = std::fs::write(&self.config_path, DEFAULT_CONFIG_TEMPLATE) {
+                    eprintln!("Failed to write default config: {}", e);
+                } else {
+                    self.needs_reload = true;
                 }
             }
             ContextMenuAction::EmptyRecycleBin => {
@@ -1254,13 +1269,10 @@ impl ApplicationHandler for DockApp {
             }
 
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
-                // Start potential drag if unlocked and over an item
-                if !self.config.dock.locked {
-                    if let Some(idx) = self.hovered_item {
-                        // Don't allow dragging separators by themselves in a special way
-                        self.drag_start_idx = Some(idx);
-                        self.drag_start_x = self.cursor_x;
-                    }
+                // Track click start for both launching (always) and dragging (if unlocked)
+                if let Some(idx) = self.hovered_item {
+                    self.drag_start_idx = Some(idx);
+                    self.drag_start_x = self.cursor_x;
                 }
             }
             
@@ -1280,13 +1292,11 @@ impl ApplicationHandler for DockApp {
                     }
                     self.dragging = false;
                     self.drag_start_idx = None;
-                } else if self.drag_start_idx.is_some() {
+                } else if let Some(index) = self.drag_start_idx {
                     // Was a click, not a drag - launch the item
-                    if let Some(index) = self.hovered_item {
-                        // Don't launch separators
-                        if !self.config.items.get(index).map(|i| i.is_separator()).unwrap_or(false) {
-                            self.launch_item(index);
-                        }
+                    // Don't launch separators
+                    if !self.config.items.get(index).map(|i| i.is_separator()).unwrap_or(false) {
+                        self.launch_item(index);
                     }
                     self.drag_start_idx = None;
                 }
@@ -1484,37 +1494,28 @@ fn write_default_config(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+fn get_config_dir() -> std::path::PathBuf {
+    // Use ~/.config/rdock on all platforms
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home).join(".config").join("rdock")
+}
+
 fn main() -> Result<()> {
     env_logger::init();
 
-    // Load config - check next to exe first, then current dir
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    // Config lives in ~/.config/rdock/config.toml
+    let config_dir = get_config_dir();
+    let config_path = config_dir.join("config.toml");
     
-    let (config, config_path) = if let Some(dir) = &exe_dir {
-        let exe_config = dir.join("config.toml");
-        if exe_config.exists() {
-            (Config::load(&exe_config)?, exe_config)
-        } else {
-            let local = std::path::PathBuf::from("config.toml");
-            if local.exists() {
-                (Config::load(&local)?, local)
-            } else {
-                // Generate default config with comments
-                write_default_config(&exe_config)?;
-                (Config::load(&exe_config)?, exe_config)
-            }
-        }
+    let config = if config_path.exists() {
+        Config::load(&config_path)?
     } else {
-        let local = std::path::PathBuf::from("config.toml");
-        if local.exists() {
-            (Config::load(&local)?, local)
-        } else {
-            // Generate default config with comments
-            write_default_config(&local)?;
-            (Config::load(&local)?, local)
-        }
+        // Create config directory and generate default config
+        std::fs::create_dir_all(&config_dir)?;
+        write_default_config(&config_path)?;
+        Config::load(&config_path)?
     };
 
     let event_loop = EventLoop::new()?;

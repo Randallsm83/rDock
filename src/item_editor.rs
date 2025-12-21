@@ -121,7 +121,7 @@ pub fn show_item_editor(item: Option<&DockItem>, is_new: bool) -> DialogResult {
         }
         
         let _ = ShowWindow(hwnd, SW_SHOW);
-        let _ = unsafe { windows::Win32::Graphics::Gdi::UpdateWindow(hwnd) };
+        let _ = windows::Win32::Graphics::Gdi::UpdateWindow(hwnd);
         
         // Modal message loop
         let mut msg = MSG::default();

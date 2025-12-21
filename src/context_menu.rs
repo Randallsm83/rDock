@@ -28,11 +28,12 @@ pub enum ContextMenuAction {
     OpenConfig,
     SaveConfigAs,
     LoadConfig,
+    ResetSettings,
+    ResetAll,
     Quit,
 }
 
 const ID_EDIT_ITEM: u32 = 1001;
-const ID_CHANGE_ICON: u32 = 1002;
 const ID_REMOVE_ITEM: u32 = 1003;
 const ID_ADD_ITEM: u32 = 1004;
 const ID_ADD_SEPARATOR: u32 = 1005;
@@ -42,6 +43,8 @@ const ID_QUIT: u32 = 1008;
 const ID_EMPTY_RECYCLE_BIN: u32 = 1009;
 const ID_SAVE_CONFIG_AS: u32 = 1010;
 const ID_LOAD_CONFIG: u32 = 1011;
+const ID_RESET_SETTINGS: u32 = 1012;
+const ID_RESET_ALL: u32 = 1013;
 
 // Special item IDs start at 2000
 const ID_SPECIAL_BASE: u32 = 2000;
@@ -125,13 +128,17 @@ pub fn show_context_menu(hwnd: isize, x: i32, y: i32, item_index: Option<usize>,
         
         let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
         
-        let config_text: Vec<u16> = "Open Config...\0".encode_utf16().collect();
+        let config_text: Vec<u16> = "Edit Config...\0".encode_utf16().collect();
         let save_text: Vec<u16> = "Save Config As...\0".encode_utf16().collect();
         let load_text: Vec<u16> = "Load Config...\0".encode_utf16().collect();
+        let reset_settings_text: Vec<u16> = "Reset Settings\0".encode_utf16().collect();
+        let reset_all_text: Vec<u16> = "Reset All\0".encode_utf16().collect();
         let quit_text: Vec<u16> = "Quit\0".encode_utf16().collect();
         let _ = AppendMenuW(hmenu, MF_STRING, ID_OPEN_CONFIG as usize, PCWSTR(config_text.as_ptr()));
         let _ = AppendMenuW(hmenu, MF_STRING, ID_SAVE_CONFIG_AS as usize, PCWSTR(save_text.as_ptr()));
         let _ = AppendMenuW(hmenu, MF_STRING, ID_LOAD_CONFIG as usize, PCWSTR(load_text.as_ptr()));
+        let _ = AppendMenuW(hmenu, MF_STRING, ID_RESET_SETTINGS as usize, PCWSTR(reset_settings_text.as_ptr()));
+        let _ = AppendMenuW(hmenu, MF_STRING, ID_RESET_ALL as usize, PCWSTR(reset_all_text.as_ptr()));
         let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(hmenu, MF_STRING, ID_QUIT as usize, PCWSTR(quit_text.as_ptr()));
 
@@ -173,6 +180,8 @@ pub fn show_context_menu(hwnd: isize, x: i32, y: i32, item_index: Option<usize>,
             ID_OPEN_CONFIG => ContextMenuAction::OpenConfig,
             ID_SAVE_CONFIG_AS => ContextMenuAction::SaveConfigAs,
             ID_LOAD_CONFIG => ContextMenuAction::LoadConfig,
+            ID_RESET_SETTINGS => ContextMenuAction::ResetSettings,
+            ID_RESET_ALL => ContextMenuAction::ResetAll,
             ID_QUIT => ContextMenuAction::Quit,
             _ => ContextMenuAction::None,
         }
@@ -188,11 +197,6 @@ pub fn pick_executable_with_path(initial: Option<&PathBuf>) -> Option<PathBuf> {
     )
 }
 
-/// Open file dialog to select an executable (no initial path)
-pub fn pick_executable() -> Option<PathBuf> {
-    pick_executable_with_path(None)
-}
-
 /// Open file dialog to select an icon
 pub fn pick_icon_with_path(initial: Option<&PathBuf>) -> Option<PathBuf> {
     pick_file(
@@ -200,11 +204,6 @@ pub fn pick_icon_with_path(initial: Option<&PathBuf>) -> Option<PathBuf> {
         &[("Icons", "*.ico;*.png"), ("ICO Files", "*.ico"), ("PNG Files", "*.png"), ("All Files", "*.*")],
         initial,
     )
-}
-
-/// Open file dialog to select an icon (no initial path)
-pub fn pick_icon() -> Option<PathBuf> {
-    pick_icon_with_path(None)
 }
 
 fn pick_file(title: &str, filters: &[(&str, &str)], initial_path: Option<&PathBuf>) -> Option<PathBuf> {
@@ -228,28 +227,23 @@ fn pick_file(title: &str, filters: &[(&str, &str)], initial_path: Option<&PathBu
         let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
         let _ = dialog.SetTitle(PCWSTR(title_wide.as_ptr()));
 
-        // Set initial folder if path exists
+        // Set initial folder if path provided
         if let Some(path) = initial_path {
-            // Get the parent directory
-            let folder = if path.is_file() {
-                path.parent().map(|p| p.to_path_buf())
-            } else if path.is_dir() {
-                Some(path.clone())
-            } else {
-                // Path doesn't exist, try parent
-                path.parent().and_then(|p| if p.exists() { Some(p.to_path_buf()) } else { None })
-            };
+            // Get the parent directory (works for both files and dirs)
+            let folder = path.parent().map(|p| p.to_path_buf()).filter(|p| p.exists());
             
             if let Some(folder_path) = folder {
-                let folder_wide: Vec<u16> = folder_path.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+                // Strip \\?\ prefix if present (canonicalize adds it, but shell APIs don't like it)
+                let folder_str = folder_path.to_string_lossy();
+                let folder_str = folder_str.strip_prefix(r"\\?\")
+                    .unwrap_or(&folder_str);
+                let folder_wide: Vec<u16> = folder_str.encode_utf16().chain(std::iter::once(0)).collect();
                 if let Ok(shell_item) = windows::Win32::UI::Shell::SHCreateItemFromParsingName::<_, _, IShellItem>(
                     PCWSTR(folder_wide.as_ptr()),
                     None,
                 ) {
                     // Use SetFolder to force the folder (overrides remembered location)
                     let _ = dialog.SetFolder(&shell_item);
-                    // Also set as default in case SetFolder doesn't work
-                    let _ = dialog.SetDefaultFolder(&shell_item);
                 }
             }
         }
@@ -293,11 +287,11 @@ fn pick_file(title: &str, filters: &[(&str, &str)], initial_path: Option<&PathBu
 }
 
 /// Open file dialog to select a config file to load
-pub fn pick_config_file() -> Option<PathBuf> {
+pub fn pick_config_file(initial_path: Option<&PathBuf>) -> Option<PathBuf> {
     pick_file(
         "Load Config",
         &[("TOML Config", "*.toml"), ("All Files", "*.*")],
-        None,
+        initial_path,
     )
 }
 
@@ -372,6 +366,7 @@ pub fn save_config_dialog(initial_path: Option<&PathBuf>) -> Option<PathBuf> {
 }
 
 /// Simple input dialog for item name (uses a basic approach)
+#[allow(dead_code)]
 pub fn input_dialog(title: &str, _prompt: &str, default: &str) -> Option<String> {
     // For simplicity, we'll use a workaround - create a temp file approach
     // A proper implementation would use a custom dialog window

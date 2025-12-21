@@ -1,7 +1,7 @@
 //! System tray overflow popup
 //! Opens the Windows 11 tray overflow using keyboard shortcut
 
-use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Foundation::{POINT, RECT};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::core::PCWSTR;
