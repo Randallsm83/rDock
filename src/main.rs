@@ -805,10 +805,9 @@ impl DockApp {
         self.hide_timer = None;
         self.show_timer = None;
         
-        // Ensure window is actually visible and on top
+        // Ensure window is visible but don't steal focus
         if let Some(window) = &self.window {
             window.set_visible(true);
-            window.focus_window();
         }
     }
     
