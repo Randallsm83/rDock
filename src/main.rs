@@ -34,7 +34,6 @@ use winit::window::{Window, WindowId, WindowLevel};
 
 const PROCESS_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 const ANIMATION_FRAME_TIME: Duration = Duration::from_millis(16);
-const HIDE_DELAY: Duration = Duration::from_millis(500);
 const TASKBAR_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const MOUSE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const FULLSCREEN_CHECK_INTERVAL: Duration = Duration::from_millis(500);
@@ -61,6 +60,17 @@ fn is_fullscreen_app_active() -> bool {
             return false;
         }
         
+        // Skip our own dock window and common shell windows
+        let mut class_name = [0u16; 256];
+        let len = GetClassNameW(fg_hwnd, &mut class_name);
+        if len > 0 {
+            let class = String::from_utf16_lossy(&class_name[..len as usize]);
+            // Skip Windows shell components
+            if class.contains("Shell_") || class.contains("Progman") || class == "WorkerW" {
+                return false;
+            }
+        }
+        
         // Get window rect
         let mut window_rect = RECT::default();
         if GetWindowRect(fg_hwnd, &mut window_rect).is_err() {
@@ -78,27 +88,40 @@ fn is_fullscreen_app_active() -> bool {
         }
         
         let screen_rect = monitor_info.rcMonitor;
+        let screen_w = (screen_rect.right - screen_rect.left) as f32;
+        let screen_h = (screen_rect.bottom - screen_rect.top) as f32;
         
-        // Check if window covers the entire screen (with small tolerance for rounding)
-        let tolerance = 5;
-        let covers_screen = 
+        // Calculate how much of the screen the window covers
+        let win_w = (window_rect.right - window_rect.left) as f32;
+        let win_h = (window_rect.bottom - window_rect.top) as f32;
+        let coverage = (win_w * win_h) / (screen_w * screen_h);
+        
+        // Check if window is at/near screen edges (allows for slight offsets)
+        let tolerance = 20;
+        let near_edges = 
             window_rect.left <= screen_rect.left + tolerance &&
             window_rect.top <= screen_rect.top + tolerance &&
             window_rect.right >= screen_rect.right - tolerance &&
             window_rect.bottom >= screen_rect.bottom - tolerance;
         
-        if !covers_screen {
-            return false;
+        // Consider fullscreen if:
+        // 1. Window covers 95%+ of screen and is near all edges (borderless windowed)
+        // 2. OR window covers 99%+ of screen (true fullscreen with slight variance)
+        if coverage >= 0.99 {
+            return true;
         }
         
-        // Check window style - fullscreen apps often have no caption/border
+        if coverage >= 0.95 && near_edges {
+            return true;
+        }
+        
+        // Also check window style for exclusive fullscreen
         let style = GetWindowLongW(fg_hwnd, GWL_STYLE) as u32;
         let has_caption = (style & WS_CAPTION.0) != 0;
         let has_thickframe = (style & WS_THICKFRAME.0) != 0;
         
-        // Fullscreen if covers screen AND (no caption OR no thick frame)
-        // This catches both exclusive fullscreen and borderless windowed
-        !has_caption || !has_thickframe
+        // If covers 90%+ and has no decorations, it's probably a game
+        coverage >= 0.90 && !has_caption && !has_thickframe
     }
 }
 
@@ -669,8 +692,9 @@ impl DockApp {
         if !self.config.dock.auto_hide {
             return;
         }
+        let hide_delay = Duration::from_millis(self.config.dock.auto_hide_delay_ms);
         if let Some(t) = self.hide_timer {
-            if t.elapsed() >= HIDE_DELAY {
+            if t.elapsed() >= hide_delay {
                 self.dock_y_target = self.dock_y_hidden;
                 self.hide_timer = None;
             }
@@ -1204,8 +1228,14 @@ impl ApplicationHandler for DockApp {
                 self.cursor_x = position.x as f32;
                 self.cursor_y = position.y as f32;
                 
-                // Show dock and ensure it stays on top
-                self.show_dock();
+                // Only show dock immediately if it's already visible/showing.
+                // If hidden, let check_mouse_position() handle the show delay.
+                let dock_mostly_visible = (self.dock_y_current - self.dock_y_visible).abs() < 50.0;
+                if dock_mostly_visible {
+                    self.show_dock();
+                } else if self.show_timer.is_none() {
+                    self.show_timer = Some(Instant::now());
+                }
                 
                 // Check if we should start dragging (mouse moved enough while button held)
                 if !self.dragging && self.drag_start_idx.is_some() && !self.config.dock.locked {

@@ -241,11 +241,64 @@ impl Config {
     }
     
     pub fn save(&self, path: &Path) -> Result<()> {
-        let content = toml::to_string_pretty(self)
-            .with_context(|| "Failed to serialize config")?;
-        std::fs::write(path, content)
+        // Try to preserve comments/formatting in the [dock] section by only
+        // regenerating the [[items]] portion of the file.
+        let content = if let Ok(original) = std::fs::read_to_string(path) {
+            self.save_preserving_header(&original)
+        } else {
+            self.serialize_full()
+        };
+        std::fs::write(path, &content)
             .with_context(|| format!("Failed to write config file: {}", path.display()))?;
         Ok(())
+    }
+    
+    /// Preserve everything before the first [[items]] entry, regenerate items only.
+    fn save_preserving_header(&self, original: &str) -> String {
+        if let Some(items_start) = original.find("[[items]]") {
+            let header = original[..items_start].trim_end();
+            format!("{}\n\n{}", header, self.serialize_items())
+        } else {
+            // No items section found — append items to existing content
+            let header = original.trim_end();
+            format!("{}\n\n{}", header, self.serialize_items())
+        }
+    }
+    
+    /// Full serialization (no original file to preserve).
+    fn serialize_full(&self) -> String {
+        toml::to_string_pretty(self).unwrap_or_default()
+    }
+    
+    /// Serialize just the [[items]] array with clean formatting.
+    fn serialize_items(&self) -> String {
+        let mut s = String::new();
+        for (i, item) in self.items.iter().enumerate() {
+            s.push_str("[[items]]\n");
+            // Use repr() style quoting for name (double quotes)
+            s.push_str(&format!("name = {:?}\n", item.name));
+            if !item.path.as_os_str().is_empty() {
+                // Single quotes for paths to avoid backslash escaping on Windows
+                s.push_str(&format!("path = '{}'\n", item.path.display()));
+            }
+            if let Some(icon) = &item.icon {
+                s.push_str(&format!("icon = '{}'\n", icon.display()));
+            }
+            if !item.args.is_empty() {
+                let args: Vec<String> = item.args.iter().map(|a| format!("{:?}", a)).collect();
+                s.push_str(&format!("args = [{}]\n", args.join(", ")));
+            }
+            if item.separator {
+                s.push_str("separator = true\n");
+            }
+            if let Some(special) = &item.special {
+                s.push_str(&format!("special = {:?}\n", special));
+            }
+            if i < self.items.len() - 1 {
+                s.push('\n');
+            }
+        }
+        s
     }
 
 }
