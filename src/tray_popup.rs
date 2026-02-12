@@ -22,7 +22,7 @@ unsafe fn open_tray_overflow(target_pos: POINT) {
     // Windows 11 uses XAML for the taskbar - no Win32 chevron button exists
     // Use Win+B to focus system tray, then Enter to open overflow
     
-    let mut inputs = [
+    let inputs = [
         // Win key down
         INPUT {
             r#type: INPUT_KEYBOARD,
@@ -77,11 +77,11 @@ unsafe fn open_tray_overflow(target_pos: POINT) {
         },
     ];
     
-    let _ = SendInput(&mut inputs, std::mem::size_of::<INPUT>() as i32);
+    let _ = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
     std::thread::sleep(std::time::Duration::from_millis(100));
     
     // Press Enter to open overflow
-    let mut enter_inputs = [
+    let enter_inputs = [
         INPUT {
             r#type: INPUT_KEYBOARD,
             Anonymous: INPUT_0 {
@@ -108,7 +108,7 @@ unsafe fn open_tray_overflow(target_pos: POINT) {
         },
     ];
     
-    let _ = SendInput(&mut enter_inputs, std::mem::size_of::<INPUT>() as i32);
+    let _ = SendInput(&enter_inputs, std::mem::size_of::<INPUT>() as i32);
     
     // Wait for overflow window to appear
     std::thread::sleep(std::time::Duration::from_millis(200));

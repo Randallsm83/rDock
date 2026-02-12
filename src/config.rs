@@ -173,7 +173,7 @@ pub struct DockItem {
     pub special: Option<String>,
 }
 
-fn is_default_path(p: &PathBuf) -> bool {
+fn is_default_path(p: &Path) -> bool {
     p.as_os_str().is_empty()
 }
 

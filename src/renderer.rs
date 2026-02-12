@@ -1,7 +1,7 @@
 use crate::config::{parse_hex_color, parse_hex_rgb, Config, DockItem, Spacing, ItemSpacing};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[cfg(windows)]
 use windows::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, ExtractIconExW};
@@ -181,7 +181,7 @@ impl Renderer {
     }
     
 #[cfg(windows)]
-    fn extract_exe_icon(&self, path: &PathBuf, size: u32) -> Option<Vec<u32>> {
+    fn extract_exe_icon(&self, path: &Path, size: u32) -> Option<Vec<u32>> {
         
         unsafe {
             // Convert path to wide string
@@ -215,7 +215,7 @@ impl Renderer {
         
         unsafe {
             let mut icon_info: ICONINFO = std::mem::zeroed();
-            if !GetIconInfo(hicon, &mut icon_info).is_ok() {
+            if GetIconInfo(hicon, &mut icon_info).is_err() {
                 return None;
             }
             
@@ -317,12 +317,12 @@ impl Renderer {
         }
     }
     
-    #[cfg(not(windows))]
-    fn extract_exe_icon(&self, _path: &PathBuf, _size: u32) -> Option<Vec<u32>> {
+#[cfg(not(windows))]
+    fn extract_exe_icon(&self, _path: &Path, _size: u32) -> Option<Vec<u32>> {
         None
     }
 
-    fn load_icon(&self, path: &PathBuf, size: u32) -> Result<Vec<u32>> {
+fn load_icon(&self, path: &Path, size: u32) -> Result<Vec<u32>> {
         use image::DynamicImage;
         use std::io::{BufReader, Seek, SeekFrom};
         
@@ -336,7 +336,7 @@ impl Renderer {
             if let Ok(ico) = ico::IconDir::read(&mut reader) {
                 // Find the largest icon entry (prefer 256x256 or larger)
                 let best = ico.entries().iter()
-                    .max_by_key(|e| e.width() as u32 * e.height() as u32);
+                    .max_by_key(|e| e.width() * e.height());
                 
                 if let Some(entry) = best {
                     if let Ok(decoded) = entry.decode() {
@@ -631,6 +631,7 @@ impl Renderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_reflection_bicubic(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
         let scale = src_size as f32 / dst_size as f32;
         let src_w = src_size as usize;
@@ -666,6 +667,7 @@ impl Renderer {
     }
     
     #[allow(dead_code)]
+    #[allow(clippy::too_many_arguments)]
     fn draw_reflection(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
         let scale = src_size as f32 / dst_size as f32;
         let src_w = src_size as usize;
@@ -713,6 +715,7 @@ impl Renderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_icon_bicubic(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
         let scale = src_size as f32 / dst_size as f32;
         let src_w = src_size as usize;
@@ -739,6 +742,7 @@ impl Renderer {
     }
     
     #[allow(dead_code)]
+    #[allow(clippy::too_many_arguments)]
     fn draw_icon_bilinear(&self, buffer: &mut [u32], buf_width: usize, pixels: &[u32], src_size: u32, x: u32, y: u32, dst_size: u32) {
         let scale = src_size as f32 / dst_size as f32;
         let src_w = src_size as usize;
@@ -1030,7 +1034,7 @@ fn bilinear_blend(p00: u32, p10: u32, p01: u32, p11: u32, fx: f32, fy: f32) -> u
 }
 
 fn alpha_blend(dst: u32, src: u32) -> u32 {
-    let sa = ((src >> 24) & 0xFF) as u32;
+    let sa = (src >> 24) & 0xFF;
     if sa == 0 {
         return dst;
     }
@@ -1038,13 +1042,13 @@ fn alpha_blend(dst: u32, src: u32) -> u32 {
         return src;
     }
 
-    let da = ((dst >> 24) & 0xFF) as u32;
-    let sr = ((src >> 16) & 0xFF) as u32;
-    let sg = ((src >> 8) & 0xFF) as u32;
-    let sb = (src & 0xFF) as u32;
-    let dr = ((dst >> 16) & 0xFF) as u32;
-    let dg = ((dst >> 8) & 0xFF) as u32;
-    let db = (dst & 0xFF) as u32;
+    let da = (dst >> 24) & 0xFF;
+    let sr = (src >> 16) & 0xFF;
+    let sg = (src >> 8) & 0xFF;
+    let sb = src & 0xFF;
+    let dr = (dst >> 16) & 0xFF;
+    let dg = (dst >> 8) & 0xFF;
+    let db = dst & 0xFF;
 
     let out_a = sa + da * (255 - sa) / 255;
     if out_a == 0 {
@@ -1061,9 +1065,9 @@ fn alpha_blend(dst: u32, src: u32) -> u32 {
 #[allow(dead_code)]
 fn brighten_pixel(pixel: u32) -> u32 {
     let a = (pixel >> 24) & 0xFF;
-    let r = (((pixel >> 16) & 0xFF) as u32 * 120 / 100).min(255);
-    let g = (((pixel >> 8) & 0xFF) as u32 * 120 / 100).min(255);
-    let b = ((pixel & 0xFF) as u32 * 120 / 100).min(255);
+    let r = (((pixel >> 16) & 0xFF) * 120 / 100).min(255);
+    let g = (((pixel >> 8) & 0xFF) * 120 / 100).min(255);
+    let b = ((pixel & 0xFF) * 120 / 100).min(255);
     (a << 24) | (r << 16) | (g << 8) | b
 }
 
@@ -1116,9 +1120,9 @@ fn sharpen_image(img: image::RgbaImage, strength: f32) -> image::RgbaImage {
             }
             
             let new_pixel = image::Rgba([
-                sum_r.max(0.0).min(255.0) as u8,
-                sum_g.max(0.0).min(255.0) as u8,
-                sum_b.max(0.0).min(255.0) as u8,
+                sum_r.clamp(0.0, 255.0) as u8,
+                sum_g.clamp(0.0, 255.0) as u8,
+                sum_b.clamp(0.0, 255.0) as u8,
                 center_a,
             ]);
             sharpened.put_pixel(x, y, new_pixel);
@@ -1128,6 +1132,7 @@ fn sharpen_image(img: image::RgbaImage, strength: f32) -> image::RgbaImage {
     sharpened
 }
 
+#[allow(clippy::needless_range_loop)]
 fn bicubic_sample(pixels: &[u32], src_w: usize, x: f32, y: f32) -> u32 {
     let x0 = x.floor() as isize;
     let y0 = y.floor() as isize;
@@ -1154,7 +1159,7 @@ fn bicubic_sample(pixels: &[u32], src_w: usize, x: f32, y: f32) -> u32 {
             cols[j] = cubic_hermite(row[0], row[1], row[2], row[3], fx);
         }
         
-        channels[ch] = cubic_hermite(cols[0], cols[1], cols[2], cols[3], fy).max(0.0).min(255.0);
+        channels[ch] = cubic_hermite(cols[0], cols[1], cols[2], cols[3], fy).clamp(0.0, 255.0);
     }
     
     ((channels[0] as u32) << 24) | ((channels[1] as u32) << 16) | ((channels[2] as u32) << 8) | (channels[3] as u32)

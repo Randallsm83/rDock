@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE, MAX_PATH};
 use windows::Win32::System::ProcessStatus::{EnumProcesses, GetModuleFileNameExW};
@@ -59,11 +59,9 @@ fn get_process_path(pid: u32) -> Option<PathBuf> {
 }
 
 /// Check if a specific executable is running
-pub fn is_running(exe_path: &PathBuf, running: &HashSet<PathBuf>) -> bool {
+pub fn is_running(exe_path: &Path, running: &HashSet<PathBuf>) -> bool {
     // Normalize path for comparison
     let normalized = exe_path.to_string_lossy().to_lowercase();
-    
-    running.iter().any(|p| {
-        p.to_string_lossy().to_lowercase() == normalized
-    })
+
+    running.iter().any(|p| p.to_string_lossy().to_lowercase() == normalized)
 }

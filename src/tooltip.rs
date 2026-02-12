@@ -103,7 +103,7 @@ fn register_class() {
                 hInstance: hinstance.into(),
                 hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
                 lpszClassName: PCWSTR(class_name.as_ptr()),
-                hbrBackground: HBRUSH(0 as *mut _), // No background - we paint it ourselves
+                hbrBackground: HBRUSH(std::ptr::null_mut()), // No background - we paint it ourselves
                 ..Default::default()
             };
             

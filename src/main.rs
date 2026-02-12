@@ -900,7 +900,7 @@ impl DockApp {
         
         // Get HWND
         let hwnd = match window.window_handle().map(|h| h.as_raw()) {
-            Ok(RawWindowHandle::Win32(h)) => h.hwnd.get() as isize,
+            Ok(RawWindowHandle::Win32(h)) => h.hwnd.get(),
             _ => return,
         };
         
@@ -943,13 +943,10 @@ impl DockApp {
         match action {
             ContextMenuAction::AddItem => {
                 // Open item editor for new item
-                match show_item_editor(None, true) {
-                    DialogResult::Ok(item) => {
-                        self.config.items.push(item);
-                        self.save_config();
-                        self.needs_reload = true;
-                    }
-                    _ => {}
+                if let DialogResult::Ok(item) = show_item_editor(None, true) {
+                    self.config.items.push(item);
+                    self.save_config();
+                    self.needs_reload = true;
                 }
             }
             ContextMenuAction::AddSeparator => {
@@ -973,13 +970,10 @@ impl DockApp {
                     special: Some(special_type),
                 };
                 
-                match show_item_editor(Some(&prefilled), true) {
-                    DialogResult::Ok(item) => {
-                        self.config.items.push(item);
-                        self.save_config();
-                        self.needs_reload = true;
-                    }
-                    _ => {}
+                if let DialogResult::Ok(item) = show_item_editor(Some(&prefilled), true) {
+                    self.config.items.push(item);
+                    self.save_config();
+                    self.needs_reload = true;
                 }
             }
             ContextMenuAction::RemoveItem(idx) => {
