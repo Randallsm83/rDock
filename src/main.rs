@@ -937,8 +937,20 @@ impl DockApp {
             .map(|special| special == "recycle_bin")
             .unwrap_or(false);
         
+        // Get app name for running non-special items
+        let app_name: Option<String> = clicked_item
+            .and_then(|i| {
+                let item = self.config.items.get(i)?;
+                let is_running = self.running_states.get(i).copied().unwrap_or(false);
+                if is_running && !item.is_separator() && item.special.is_none() {
+                    Some(item.name.clone())
+                } else {
+                    None
+                }
+            });
+        
         // Show unified context menu
-        let action = show_context_menu(hwnd, screen_x, screen_y, clicked_item, self.config.dock.locked, is_separator, is_recycle_bin);
+        let action = show_context_menu(hwnd, screen_x, screen_y, clicked_item, self.config.dock.locked, is_separator, is_recycle_bin, app_name.as_deref());
         
         match action {
             ContextMenuAction::AddItem => {
@@ -1050,6 +1062,13 @@ impl DockApp {
                     self.needs_reload = true;
                 }
             }
+            ContextMenuAction::QuitApp(idx) => {
+                if let Some(item) = self.config.items.get(idx) {
+                    app_monitor::quit_application(&item.path);
+                    // Force a process state refresh
+                    self.last_process_check = Instant::now() - PROCESS_CHECK_INTERVAL;
+                }
+            }
             ContextMenuAction::EmptyRecycleBin => {
                 self.empty_recycle_bin();
             }
@@ -1073,10 +1092,10 @@ impl DockApp {
         // Check if any icon scale is animating
         let icons_animating = self.icon_scales.iter().any(|&scale| (scale - 1.0).abs() > 0.01);
         
-        // Check if hide timer is active
-        let hide_pending = self.hide_timer.is_some();
+        // Check if hide/show timers are active
+        let timer_pending = self.hide_timer.is_some() || self.show_timer.is_some();
         
-        dock_animating || icons_animating || hide_pending || self.cursor_in_window
+        dock_animating || icons_animating || timer_pending || self.cursor_in_window
     }
     
     fn get_drop_index(&self) -> usize {
@@ -1135,8 +1154,9 @@ impl ApplicationHandler for DockApp {
         let offset = self.config.dock.negative_vertical_offset;
         // Positive offset = move down (bury into edge)
         let y_vis = (screen.height as i32 - dock_h as i32 + offset) as u32;
-        // When hidden, keep 5 pixels visible at bottom edge for more reliable cursor detection
-        let y_hid = screen.height - 5;
+        // When hidden, push dock fully off-screen so cursor can't enter it directly.
+        // check_mouse_position() handles detection via global cursor polling.
+        let y_hid = screen.height + 20;
         
         self.dock_y_visible = y_vis as f32;
         self.dock_y_hidden = y_hid as f32;
@@ -1222,10 +1242,10 @@ impl ApplicationHandler for DockApp {
                 self.cursor_x = position.x as f32;
                 self.cursor_y = position.y as f32;
                 
-                // Only show dock immediately if it's already visible/showing.
-                // If hidden, let check_mouse_position() handle the show delay.
-                let dock_mostly_visible = (self.dock_y_current - self.dock_y_visible).abs() < 50.0;
-                if dock_mostly_visible {
+                // Only show dock immediately if it's already intentionally showing/visible.
+                // If hiding or hidden, respect the show delay via show_timer.
+                let dock_is_showing = self.dock_y_target == self.dock_y_visible;
+                if dock_is_showing {
                     self.show_dock();
                 } else if self.show_timer.is_none() {
                     self.show_timer = Some(Instant::now());

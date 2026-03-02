@@ -19,6 +19,7 @@ pub enum ContextMenuAction {
     // Item-specific actions
     EditItem(usize),
     RemoveItem(usize),
+    QuitApp(usize),
     EmptyRecycleBin,
     // General actions
     AddItem,
@@ -45,6 +46,7 @@ const ID_SAVE_CONFIG_AS: u32 = 1010;
 const ID_LOAD_CONFIG: u32 = 1011;
 const ID_RESET_SETTINGS: u32 = 1012;
 const ID_RESET_ALL: u32 = 1013;
+const ID_QUIT_APP: u32 = 1014;
 
 // Special item IDs start at 2000
 const ID_SPECIAL_BASE: u32 = 2000;
@@ -70,7 +72,7 @@ pub const SPECIAL_ITEMS: &[(&str, &str)] = &[
 ];
 
 /// Show unified context menu
-pub fn show_context_menu(hwnd: isize, x: i32, y: i32, item_index: Option<usize>, is_locked: bool, is_separator: bool, is_recycle_bin: bool) -> ContextMenuAction {
+pub fn show_context_menu(hwnd: isize, x: i32, y: i32, item_index: Option<usize>, is_locked: bool, is_separator: bool, is_recycle_bin: bool, app_name: Option<&str>) -> ContextMenuAction {
     unsafe {
         let hmenu = CreatePopupMenu().unwrap_or_default();
         if hmenu.is_invalid() {
@@ -79,6 +81,13 @@ pub fn show_context_menu(hwnd: isize, x: i32, y: i32, item_index: Option<usize>,
 
         // Item-specific options (only if clicked on an item and not locked)
         if let Some(_idx) = item_index {
+            // Show "Quit <app>" for running applications
+            if let Some(name) = app_name {
+                let quit_app_text: Vec<u16> = format!("Quit {}\0", name).encode_utf16().collect();
+                let _ = AppendMenuW(hmenu, MF_STRING, ID_QUIT_APP as usize, PCWSTR(quit_app_text.as_ptr()));
+                let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
+            }
+
             // Show "Empty Recycle Bin" for recycle bin special item (even when locked)
             if is_recycle_bin {
                 let empty_text: Vec<u16> = "Empty Recycle Bin\0".encode_utf16().collect();
@@ -173,6 +182,7 @@ pub fn show_context_menu(hwnd: isize, x: i32, y: i32, item_index: Option<usize>,
         match cmd_id {
             ID_EDIT_ITEM => ContextMenuAction::EditItem(item_index.unwrap_or(0)),
             ID_REMOVE_ITEM => ContextMenuAction::RemoveItem(item_index.unwrap_or(0)),
+            ID_QUIT_APP => ContextMenuAction::QuitApp(item_index.unwrap_or(0)),
             ID_EMPTY_RECYCLE_BIN => ContextMenuAction::EmptyRecycleBin,
             ID_ADD_ITEM => ContextMenuAction::AddItem,
             ID_ADD_SEPARATOR => ContextMenuAction::AddSeparator,
