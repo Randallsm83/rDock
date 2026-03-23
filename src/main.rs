@@ -37,6 +37,7 @@ const ANIMATION_FRAME_TIME: Duration = Duration::from_millis(16);
 const TASKBAR_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const MOUSE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const FULLSCREEN_CHECK_INTERVAL: Duration = Duration::from_millis(500);
+const ZORDER_REASSERT_INTERVAL: Duration = Duration::from_millis(500);
 
 
 /// Check if a fullscreen application is currently running
@@ -96,6 +97,12 @@ fn is_fullscreen_app_active() -> bool {
         let win_h = (window_rect.bottom - window_rect.top) as f32;
         let coverage = (win_w * win_h) / (screen_w * screen_h);
         
+        // Check window styles to distinguish fullscreen from maximized
+        let style = GetWindowLongW(fg_hwnd, GWL_STYLE) as u32;
+        let has_caption = (style & WS_CAPTION.0) != 0;
+        let has_thickframe = (style & WS_THICKFRAME.0) != 0;
+        let is_decorated = has_caption || has_thickframe;
+        
         // Check if window is at/near screen edges (allows for slight offsets)
         let tolerance = 20;
         let near_edges = 
@@ -105,23 +112,19 @@ fn is_fullscreen_app_active() -> bool {
             window_rect.bottom >= screen_rect.bottom - tolerance;
         
         // Consider fullscreen if:
-        // 1. Window covers 95%+ of screen and is near all edges (borderless windowed)
-        // 2. OR window covers 99%+ of screen (true fullscreen with slight variance)
-        if coverage >= 0.99 {
+        // 1. Window covers 99%+ of screen AND has no decorations (true/borderless fullscreen)
+        //    Maximized windows have WS_CAPTION/WS_THICKFRAME and should NOT trigger this.
+        if coverage >= 0.99 && !is_decorated {
             return true;
         }
         
-        if coverage >= 0.95 && near_edges {
+        // 2. Window covers 95%+ and is near all edges, without decorations (borderless windowed)
+        if coverage >= 0.95 && near_edges && !is_decorated {
             return true;
         }
         
-        // Also check window style for exclusive fullscreen
-        let style = GetWindowLongW(fg_hwnd, GWL_STYLE) as u32;
-        let has_caption = (style & WS_CAPTION.0) != 0;
-        let has_thickframe = (style & WS_THICKFRAME.0) != 0;
-        
-        // If covers 90%+ and has no decorations, it's probably a game
-        coverage >= 0.90 && !has_caption && !has_thickframe
+        // 3. Covers 90%+ with no decorations - probably a game
+        coverage >= 0.90 && !is_decorated
     }
 }
 
@@ -278,6 +281,9 @@ struct DockApp {
     // Fullscreen detection
     fullscreen_active: bool,
     last_fullscreen_check: Instant,
+    
+    // Z-order maintenance
+    last_zorder_reassert: Instant,
 }
 
 impl DockApp {
@@ -330,6 +336,7 @@ impl DockApp {
             last_mouse_poll: Instant::now(),
             fullscreen_active: false,
             last_fullscreen_check: Instant::now(),
+            last_zorder_reassert: Instant::now(),
         }
     }
     
@@ -728,6 +735,41 @@ impl DockApp {
         // Aggressively re-hide taskbar in case Windows restored it
         if self.taskbar_hidden {
             set_taskbar_visibility(false);
+        }
+    }
+    
+    #[cfg(windows)]
+    fn ensure_topmost(&mut self) {
+        if self.last_zorder_reassert.elapsed() < ZORDER_REASSERT_INTERVAL {
+            return;
+        }
+        self.last_zorder_reassert = Instant::now();
+        
+        // Only reassert when dock is fully settled at its visible position (not animating)
+        if (self.dock_y_current - self.dock_y_visible).abs() > 5.0 {
+            return;
+        }
+        
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE,
+        };
+        
+        let Some(window) = &self.window else { return };
+        let hwnd = match window.window_handle().map(|h| h.as_raw()) {
+            Ok(RawWindowHandle::Win32(h)) => {
+                windows::Win32::Foundation::HWND(h.hwnd.get() as *mut _)
+            }
+            _ => return,
+        };
+        
+        unsafe {
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            );
         }
     }
     
@@ -1385,6 +1427,10 @@ impl ApplicationHandler for DockApp {
         
         // Check for fullscreen apps
         self.check_fullscreen();
+        
+        // Re-assert topmost z-order so dock stays above other topmost windows (e.g. Warp)
+        #[cfg(windows)]
+        self.ensure_topmost();
 
         // Check if we need to animate
         let needs_animation = self.is_animating();
