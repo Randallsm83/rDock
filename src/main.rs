@@ -37,7 +37,7 @@ const ANIMATION_FRAME_TIME: Duration = Duration::from_millis(16);
 const TASKBAR_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const MOUSE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const FULLSCREEN_CHECK_INTERVAL: Duration = Duration::from_millis(500);
-const ZORDER_REASSERT_INTERVAL: Duration = Duration::from_millis(500);
+const ZORDER_REASSERT_INTERVAL: Duration = Duration::from_millis(2000);
 
 
 /// Check if a fullscreen application is currently running
@@ -766,7 +766,7 @@ impl DockApp {
         
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
         use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE,
+            SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE, SWP_NOSENDCHANGING,
         };
         
         let Some(window) = &self.window else { return };
@@ -782,7 +782,7 @@ impl DockApp {
                 hwnd,
                 HWND_TOPMOST,
                 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING,
             );
         }
     }
@@ -884,11 +884,9 @@ impl DockApp {
         self.dock_y_target = self.dock_y_visible;
         self.hide_timer = None;
         self.show_timer = None;
-        
-        // Ensure window is visible but don't steal focus
-        if let Some(window) = &self.window {
-            window.set_visible(true);
-        }
+        // Defer topmost reassertion so SetWindowPos never fires during or immediately
+        // after the show animation - avoids DWM recomposition flash on transparent window.
+        self.last_zorder_reassert = Instant::now();
     }
     
     fn show_dock_at_cursor(&mut self) {
