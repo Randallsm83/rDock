@@ -37,7 +37,7 @@ const ANIMATION_FRAME_TIME: Duration = Duration::from_millis(16);
 const TASKBAR_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const MOUSE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const FULLSCREEN_CHECK_INTERVAL: Duration = Duration::from_millis(500);
-const ZORDER_REASSERT_INTERVAL: Duration = Duration::from_millis(2000);
+const ZORDER_REASSERT_INTERVAL: Duration = Duration::from_millis(1000);
 
 
 /// Check if a fullscreen application is currently running
@@ -881,12 +881,19 @@ impl DockApp {
     }
 
     fn show_dock(&mut self) {
+        let transitioning = self.dock_y_target != self.dock_y_visible;
         self.dock_y_target = self.dock_y_visible;
         self.hide_timer = None;
         self.show_timer = None;
-        // Defer topmost reassertion so SetWindowPos never fires during or immediately
-        // after the show animation - avoids DWM recomposition flash on transparent window.
-        self.last_zorder_reassert = Instant::now();
+        // On hidden→visible transition, delay first reassertion by 500ms so
+        // SetWindowPos doesn't fire during the animation (~280ms to complete).
+        // Don't reset when called as a keep-alive (cursor moving while visible) -
+        // that would prevent ensure_topmost() from ever firing while hovering.
+        if transitioning {
+            self.last_zorder_reassert = Instant::now()
+                .checked_sub(ZORDER_REASSERT_INTERVAL - Duration::from_millis(500))
+                .unwrap_or_else(Instant::now);
+        }
     }
     
     fn show_dock_at_cursor(&mut self) {
