@@ -284,6 +284,9 @@ struct DockApp {
     
     // Z-order maintenance
     last_zorder_reassert: Instant,
+    
+    // Frame timing for delta-time animation
+    last_frame_time: Instant,
 }
 
 impl DockApp {
@@ -337,6 +340,7 @@ impl DockApp {
             fullscreen_active: false,
             last_fullscreen_check: Instant::now(),
             last_zorder_reassert: Instant::now(),
+            last_frame_time: Instant::now(),
         }
     }
     
@@ -635,17 +639,28 @@ impl DockApp {
     }
 
     fn update_animations(&mut self) -> bool {
+        // Compute frame delta time for frame-rate-independent animation.
+        // Clamp to 100ms so a stall doesn't cause a huge jump.
+        let now = Instant::now();
+        let delta = now.duration_since(self.last_frame_time).as_secs_f32().min(0.1);
+        self.last_frame_time = now;
+        
+        // Delta-time-compensated lerp alpha:
+        //   base_alpha is tuned for 60 fps (16.67ms); scale it to actual delta so
+        //   animation speed is identical regardless of frame rate.
+        const TARGET_DT: f32 = 1.0 / 60.0;
+        let dock_alpha  = 1.0 - (1.0_f32 - 0.15).powf(delta / TARGET_DT);
+        let icon_alpha  = 1.0 - (1.0_f32 - 0.30).powf(delta / TARGET_DT);
+        
         let mut animating = false;
         
         // Smooth dock Y position
         let dy = self.dock_y_target - self.dock_y_current;
         if dy.abs() > 0.5 {
-            self.dock_y_current += dy * 0.15;
+            self.dock_y_current += dy * dock_alpha;
             if let Some(window) = &self.window {
                 let x = ((self.screen_width as f32 - self.renderer.as_ref().unwrap().width as f32) / 2.0) as i32;
                 window.set_outer_position(PhysicalPosition::new(x, self.dock_y_current as i32));
-                // Ensure window stays visible during animation
-                window.set_visible(true);
             }
             animating = true;
         }
@@ -683,8 +698,7 @@ impl DockApp {
                 
                 let d = target - self.icon_scales[i];
                 if d.abs() > 0.001 {
-                    // Slightly faster interpolation for more responsive feel
-                    self.icon_scales[i] += d * 0.3;
+                    self.icon_scales[i] += d * icon_alpha;
                     animating = true;
                 } else {
                     self.icon_scales[i] = target;
