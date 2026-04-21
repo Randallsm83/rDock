@@ -813,15 +813,21 @@ impl DockApp {
             return;
         }
         
-        // Don't show dock if fullscreen app is active
-        if self.fullscreen_active {
-            return;
-        }
-        
         if self.last_mouse_poll.elapsed() < MOUSE_POLL_INTERVAL {
             return;
         }
         self.last_mouse_poll = Instant::now();
+        
+        // When a fullscreen app is active we never want to show or move the
+        // dock, but we DO still need to clear `cursor_in_window` if it got
+        // latched true, otherwise callers relying on that flag keep thinking
+        // the cursor is over the dock forever.
+        if self.fullscreen_active {
+            if self.cursor_in_window {
+                self.cursor_in_window = false;
+            }
+            return;
+        }
         
         // Get global cursor position
         unsafe {
@@ -1156,7 +1162,15 @@ impl DockApp {
         // Check if hide/show timers are active
         let timer_pending = self.hide_timer.is_some() || self.show_timer.is_some();
         
-        dock_animating || icons_animating || timer_pending || self.cursor_in_window
+        // NOTE: deliberately do NOT include `cursor_in_window` here. The icon wave
+        // effect drives `icon_scales` which already trip `icons_animating` while
+        // the cursor is moving over the dock; once the cursor stops, scales
+        // converge to their targets and there is nothing left to animate.
+        // Including `cursor_in_window` caused the event loop to run at 60 FPS
+        // indefinitely whenever the flag got stuck true (e.g. missed CursorLeft
+        // during a spawn-time race, or cursor_in_window flipped true while
+        // `fullscreen_active` suppresses the reset path in check_mouse_position).
+        dock_animating || icons_animating || timer_pending
     }
     
     fn get_drop_index(&self) -> usize {
