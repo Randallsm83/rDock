@@ -32,7 +32,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::window::{Window, WindowId, WindowLevel};
 
-const PROCESS_CHECK_INTERVAL: Duration = Duration::from_secs(2);
+const PROCESS_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const ANIMATION_FRAME_TIME: Duration = Duration::from_millis(16);
 const TASKBAR_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const MOUSE_POLL_INTERVAL: Duration = Duration::from_millis(50);

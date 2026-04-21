@@ -1,16 +1,29 @@
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, BOOL, LPARAM, MAX_PATH};
-use windows::Win32::System::ProcessStatus::{EnumProcesses, GetModuleFileNameExW};
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ, PROCESS_TERMINATE, TerminateProcess};
-use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, BOOL, LPARAM};
+use windows::Win32::System::ProcessStatus::EnumProcesses;
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, TerminateProcess, PROCESS_NAME_FORMAT,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+};
 
-/// Get list of currently running executable paths
-pub fn get_running_executables() -> HashSet<PathBuf> {
-    let mut running = HashSet::new();
+/// Snapshot of running executables. Paths are stored pre-lowercased so lookups
+/// are O(1) without per-call allocation.
+pub type RunningSet = HashSet<String>;
+
+/// Enumerate running processes and return their executable paths (lowercased).
+///
+/// Uses `PROCESS_QUERY_LIMITED_INFORMATION` + `QueryFullProcessImageNameW`,
+/// which is significantly cheaper than `PROCESS_VM_READ` + `GetModuleFileNameExW`
+/// and also succeeds for elevated processes.
+pub fn get_running_executables() -> RunningSet {
+    let mut running = RunningSet::with_capacity(512);
     let mut pids: [u32; 2048] = [0; 2048];
     let mut bytes_returned: u32 = 0;
 
@@ -19,17 +32,19 @@ pub fn get_running_executables() -> HashSet<PathBuf> {
             pids.as_mut_ptr(),
             (pids.len() * std::mem::size_of::<u32>()) as u32,
             &mut bytes_returned,
-        ).is_ok() {
-            let num_pids = bytes_returned as usize / std::mem::size_of::<u32>();
-            
-            for &pid in &pids[..num_pids] {
-                if pid == 0 {
-                    continue;
-                }
-                
-                if let Some(path) = get_process_path(pid) {
-                    running.insert(path);
-                }
+        )
+        .is_err()
+        {
+            return running;
+        }
+
+        let num_pids = bytes_returned as usize / std::mem::size_of::<u32>();
+        for &pid in &pids[..num_pids] {
+            if pid == 0 {
+                continue;
+            }
+            if let Some(path) = get_process_path_lower(pid) {
+                running.insert(path);
             }
         }
     }
@@ -37,34 +52,31 @@ pub fn get_running_executables() -> HashSet<PathBuf> {
     running
 }
 
-fn get_process_path(pid: u32) -> Option<PathBuf> {
-    unsafe {
-        let handle: HANDLE = OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-            false,
-            pid,
-        ).ok()?;
+/// Query a process's image path as a lowercased `String`. Returns `None` on
+/// failure (access denied, protected process, exited, etc).
+fn get_process_path_lower(pid: u32) -> Option<String> {
+    let mut buffer = [0u16; 1024];
+    let mut size = buffer.len() as u32;
 
-        let mut buffer: [u16; MAX_PATH as usize] = [0; MAX_PATH as usize];
-        let len = GetModuleFileNameExW(handle, None, &mut buffer);
-        
+    unsafe {
+        let handle: HANDLE = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+
+        let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buffer.as_mut_ptr()), &mut size).is_ok();
         let _ = CloseHandle(handle);
 
-        if len == 0 {
+        if !ok || size == 0 {
             return None;
         }
 
-        let path = OsString::from_wide(&buffer[..len as usize]);
-        Some(PathBuf::from(path))
+        let os = OsString::from_wide(&buffer[..size as usize]);
+        Some(os.to_string_lossy().to_lowercase())
     }
 }
 
-/// Check if a specific executable is running
-pub fn is_running(exe_path: &Path, running: &HashSet<PathBuf>) -> bool {
-    // Normalize path for comparison
+/// Check if a specific executable is in the running snapshot. O(1).
+pub fn is_running(exe_path: &Path, running: &RunningSet) -> bool {
     let normalized = exe_path.to_string_lossy().to_lowercase();
-
-    running.iter().any(|p| p.to_string_lossy().to_lowercase() == normalized)
+    running.contains(&normalized)
 }
 
 /// Gracefully quit all instances of an application by sending WM_CLOSE to its windows.
@@ -86,8 +98,8 @@ pub fn quit_application(exe_path: &Path) {
             let num_pids = bytes_returned as usize / std::mem::size_of::<u32>();
             for &pid in &pids[..num_pids] {
                 if pid == 0 { continue; }
-                if let Some(path) = get_process_path(pid) {
-                    if path.to_string_lossy().to_lowercase() == normalized {
+                if let Some(path) = get_process_path_lower(pid) {
+                    if path == normalized {
                         target_pids.insert(pid);
                     }
                 }
