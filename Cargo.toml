@@ -4,6 +4,20 @@ version = "0.2.1"
 edition = "2021"
 description = "Lightweight Windows dock with custom icon support"
 
+[features]
+# Compiles the headless render microbenchmark binary (bench/render_bench.rs).
+# Off by default so normal `cargo build` / release builds never include it.
+bench = []
+
+[[bin]]
+name = "rdock"
+path = "src/main.rs"
+
+[[bin]]
+name = "render_bench"
+path = "bench/render_bench.rs"
+required-features = ["bench"]
+
 [dependencies]
 # Window management
 winit = { version = "0.30", features = ["rwh_06"] }
