@@ -1380,6 +1380,9 @@ impl ApplicationHandler for DockApp {
                         }
                     }
                 }
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
             }
 
             WindowEvent::CursorLeft { .. } => {
