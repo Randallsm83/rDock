@@ -1,5 +1,7 @@
 # rDock Project Rules
 
+> **Canonical agent doc**: [AGENTS.md](file:///D:/rdock/AGENTS.md). It covers stack, commands, layout, conventions, and links to `PERFORMANCE.md` / `STABILITY_FIXES.md` / `RELEASING.md`. This `WARP.md` is kept for Warp users and supplements that with Windows-API specifics below; **prefer AGENTS.md** for anything also stated there.
+
 ## Project Overview
 rDock is a lightweight Windows dock application written in Rust, providing a macOS-like dock experience for Windows 10/11.
 
