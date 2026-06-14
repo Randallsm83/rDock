@@ -142,7 +142,10 @@ fn set_taskbar_visibility(visible: bool) {
         let class_name: Vec<u16> = "Shell_TrayWnd".encode_utf16().chain(std::iter::once(0)).collect();
         if let Ok(taskbar) = FindWindowW(PCWSTR(class_name.as_ptr()), PCWSTR::null()) {
             if !taskbar.0.is_null() {
-                let _ = ShowWindow(taskbar, cmd);
+                let is_visible = IsWindowVisible(taskbar).as_bool();
+                if is_visible != visible {
+                    let _ = ShowWindow(taskbar, cmd);
+                }
                 if !visible {
                     // More aggressive hiding - move it off screen
                     let _ = SetWindowPos(
@@ -158,12 +161,22 @@ fn set_taskbar_visibility(visible: bool) {
         // Secondary taskbars (multi-monitor)
         // Use EnumWindows to find all secondary taskbars
         let class_name2: Vec<u16> = "Shell_SecondaryTrayWnd".encode_utf16().chain(std::iter::once(0)).collect();
+        let mut taskbars = Vec::new();
         let mut hwnd = FindWindowExW(HWND::default(), HWND::default(), PCWSTR(class_name2.as_ptr()), PCWSTR::null());
         while let Ok(taskbar2) = hwnd {
             if taskbar2.0.is_null() {
                 break;
             }
-            let _ = ShowWindow(taskbar2, cmd);
+            taskbars.push(taskbar2);
+            // Find next secondary taskbar
+            hwnd = FindWindowExW(HWND::default(), taskbar2, PCWSTR(class_name2.as_ptr()), PCWSTR::null());
+        }
+        
+        for taskbar2 in taskbars {
+            let is_visible = IsWindowVisible(taskbar2).as_bool();
+            if is_visible != visible {
+                let _ = ShowWindow(taskbar2, cmd);
+            }
             if !visible {
                 // More aggressive hiding
                 let _ = SetWindowPos(
@@ -173,8 +186,6 @@ fn set_taskbar_visibility(visible: bool) {
                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
                 );
             }
-            // Find next secondary taskbar
-            hwnd = FindWindowExW(HWND::default(), taskbar2, PCWSTR(class_name2.as_ptr()), PCWSTR::null());
         }
     }
 }
