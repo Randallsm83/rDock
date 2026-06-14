@@ -78,7 +78,9 @@ unsafe fn open_tray_overflow(target_pos: POINT) {
     ];
     
     let _ = SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    
+    // Increased wait for system tray to gain focus (especially the first time)
+    std::thread::sleep(std::time::Duration::from_millis(250));
     
     // Press Enter to open overflow
     let enter_inputs = [
@@ -110,8 +112,8 @@ unsafe fn open_tray_overflow(target_pos: POINT) {
     
     let _ = SendInput(&enter_inputs, std::mem::size_of::<INPUT>() as i32);
     
-    // Wait for overflow window to appear
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Increased wait for overflow window to appear
+    std::thread::sleep(std::time::Duration::from_millis(300));
     
     // Find and move the overflow window near the cursor
     let overflow_class: Vec<u16> = "TopLevelWindowForOverflowXamlIsland\0".encode_utf16().collect();
