@@ -1151,6 +1151,33 @@ fn bicubic_sample(pixels: &[u32], src_w: usize, x: f32, y: f32) -> u32 {
         (y0 + 1).max(0).min(max_coord) as usize * src_w,
         (y0 + 2).max(0).min(max_coord) as usize * src_w,
     ];
+    let samples = [
+        [
+            pixels[rows[0] + xs[0]],
+            pixels[rows[0] + xs[1]],
+            pixels[rows[0] + xs[2]],
+            pixels[rows[0] + xs[3]],
+        ],
+        [
+            pixels[rows[1] + xs[0]],
+            pixels[rows[1] + xs[1]],
+            pixels[rows[1] + xs[2]],
+            pixels[rows[1] + xs[3]],
+        ],
+        [
+            pixels[rows[2] + xs[0]],
+            pixels[rows[2] + xs[1]],
+            pixels[rows[2] + xs[2]],
+            pixels[rows[2] + xs[3]],
+        ],
+        [
+            pixels[rows[3] + xs[0]],
+            pixels[rows[3] + xs[1]],
+            pixels[rows[3] + xs[2]],
+            pixels[rows[3] + xs[3]],
+        ],
+    ];
+
 
     let mut channels = [0f32; 4]; // ARGB
 
@@ -1159,12 +1186,11 @@ fn bicubic_sample(pixels: &[u32], src_w: usize, x: f32, y: f32) -> u32 {
         let mut cols = [0f32; 4];
 
         for j in 0..4 {
-            let base = rows[j];
             let row = [
-                ((pixels[base + xs[0]] >> shift) & 0xFF) as f32,
-                ((pixels[base + xs[1]] >> shift) & 0xFF) as f32,
-                ((pixels[base + xs[2]] >> shift) & 0xFF) as f32,
-                ((pixels[base + xs[3]] >> shift) & 0xFF) as f32,
+                ((samples[j][0] >> shift) & 0xFF) as f32,
+                ((samples[j][1] >> shift) & 0xFF) as f32,
+                ((samples[j][2] >> shift) & 0xFF) as f32,
+                ((samples[j][3] >> shift) & 0xFF) as f32,
             ];
 
             cols[j] = cubic_hermite(row[0], row[1], row[2], row[3], fx);
