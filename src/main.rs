@@ -398,8 +398,10 @@ impl DockApp {
         // Small delay to let file finish writing
         std::thread::sleep(Duration::from_millis(50));
         
-        if let Ok(new_config) = Config::load(&self.config_path) {
+        if let Ok(mut new_config) = Config::load(&self.config_path) {
+            let previous_locked = self.config.dock.locked;
             let n = new_config.items.len();
+            new_config.dock.locked = previous_locked;
             self.config = new_config;
             
             // Rebuild renderer with new config
