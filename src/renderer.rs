@@ -1132,35 +1132,46 @@ fn sharpen_image(img: image::RgbaImage, strength: f32) -> image::RgbaImage {
     sharpened
 }
 
-#[allow(clippy::needless_range_loop)]
 fn bicubic_sample(pixels: &[u32], src_w: usize, x: f32, y: f32) -> u32 {
     let x0 = x.floor() as isize;
     let y0 = y.floor() as isize;
     let fx = x - x0 as f32;
     let fy = y - y0 as f32;
-    
+    let max_coord = src_w as isize - 1;
+
+    let xs = [
+        (x0 - 1).max(0).min(max_coord) as usize,
+        x0.max(0).min(max_coord) as usize,
+        (x0 + 1).max(0).min(max_coord) as usize,
+        (x0 + 2).max(0).min(max_coord) as usize,
+    ];
+    let rows = [
+        (y0 - 1).max(0).min(max_coord) as usize * src_w,
+        y0.max(0).min(max_coord) as usize * src_w,
+        (y0 + 1).max(0).min(max_coord) as usize * src_w,
+        (y0 + 2).max(0).min(max_coord) as usize * src_w,
+    ];
+
     let mut channels = [0f32; 4]; // ARGB
-    
+
     for ch in 0..4 {
         let shift = (3 - ch) * 8;
         let mut cols = [0f32; 4];
-        
+
         for j in 0..4 {
-            let py = (y0 - 1 + j as isize).max(0).min(src_w as isize - 1) as usize;
-            let mut row = [0f32; 4];
-            
-            for i in 0..4 {
-                let px = (x0 - 1 + i as isize).max(0).min(src_w as isize - 1) as usize;
-                let idx = py * src_w + px;
-                let pixel = pixels.get(idx).copied().unwrap_or(0);
-                row[i] = ((pixel >> shift) & 0xFF) as f32;
-            }
-            
+            let base = rows[j];
+            let row = [
+                ((pixels[base + xs[0]] >> shift) & 0xFF) as f32,
+                ((pixels[base + xs[1]] >> shift) & 0xFF) as f32,
+                ((pixels[base + xs[2]] >> shift) & 0xFF) as f32,
+                ((pixels[base + xs[3]] >> shift) & 0xFF) as f32,
+            ];
+
             cols[j] = cubic_hermite(row[0], row[1], row[2], row[3], fx);
         }
-        
+
         channels[ch] = cubic_hermite(cols[0], cols[1], cols[2], cols[3], fy).clamp(0.0, 255.0);
     }
-    
+
     ((channels[0] as u32) << 24) | ((channels[1] as u32) << 16) | ((channels[2] as u32) << 8) | (channels[3] as u32)
 }
