@@ -1075,11 +1075,10 @@ fn brighten_pixel(pixel: u32) -> u32 {
 // Cubic hermite spline interpolation for smooth scaling
 #[inline(always)]
 fn cubic_hermite(a: f32, b: f32, c: f32, d: f32, t: f32) -> f32 {
-    let a0 = -a / 2.0 + (3.0 * b) / 2.0 - (3.0 * c) / 2.0 + d / 2.0;
-    let a1 = a - (5.0 * b) / 2.0 + 2.0 * c - d / 2.0;
-    let a2 = -a / 2.0 + c / 2.0;
-    let a3 = b;
-    a0 * t * t * t + a1 * t * t + a2 * t + a3
+    let a0 = -a * 0.5 + b * 1.5 - c * 1.5 + d * 0.5;
+    let a1 = a - b * 2.5 + c * 2.0 - d * 0.5;
+    let a2 = (c - a) * 0.5;
+    ((a0 * t + a1) * t + a2) * t + b
 }
 
 // Apply unsharp mask sharpening to improve edge clarity
