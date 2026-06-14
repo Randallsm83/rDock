@@ -1033,6 +1033,7 @@ fn bilinear_blend(p00: u32, p10: u32, p01: u32, p11: u32, fx: f32, fy: f32) -> u
     (a << 24) | (r << 16) | (g << 8) | b
 }
 
+#[inline(always)]
 fn alpha_blend(dst: u32, src: u32) -> u32 {
     let sa = (src >> 24) & 0xFF;
     if sa == 0 {
@@ -1072,6 +1073,7 @@ fn brighten_pixel(pixel: u32) -> u32 {
 }
 
 // Cubic hermite spline interpolation for smooth scaling
+#[inline(always)]
 fn cubic_hermite(a: f32, b: f32, c: f32, d: f32, t: f32) -> f32 {
     let a0 = -a / 2.0 + (3.0 * b) / 2.0 - (3.0 * c) / 2.0 + d / 2.0;
     let a1 = a - (5.0 * b) / 2.0 + 2.0 * c - d / 2.0;
@@ -1132,6 +1134,7 @@ fn sharpen_image(img: image::RgbaImage, strength: f32) -> image::RgbaImage {
     sharpened
 }
 
+#[inline(always)]
 fn bicubic_sample(pixels: &[u32], src_w: usize, x: f32, y: f32) -> u32 {
     let x0 = x.floor() as isize;
     let y0 = y.floor() as isize;
